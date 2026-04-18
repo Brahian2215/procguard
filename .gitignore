@@ -1,0 +1,17 @@
+build/
+*.o
+*.a
+*.so
+*.d
+procguard
+procguardd
+core
+core.*
+vgcore.*
+*.swp
+*.log
+logs/
+reports/
+.cache/
+compile_commands.json
+.vscode/

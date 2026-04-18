@@ -1,0 +1,11 @@
+build/
+*.o
+*.a
+*.so
+*.pdf
+logs/
+reports/
+tests/fixtures/large/
+.git/
+*.log
+node_modules/
