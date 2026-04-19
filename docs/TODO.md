@@ -15,3 +15,10 @@ Cosas detectadas durante desarrollo que no son parte de la tarea actual.
 - El patrón "compilar fuentes inline en cada test binary" no escala. En Slice 3,
   cuando haya 2+ módulos con tests, introducir `build/tests/` con objetos ASAN
   reutilizables entre test binaries para acelerar `make test`.
+- Path fijo `/tmp/pg_test_proc` para fixtures de tests. Colisiona si los tests
+  corren en paralelo (CI con `make -j` o varios test binaries con fixtures de
+  procfs). Migrar a `mkdtemp` cuando exista >1 binario de tests con fixtures
+  de procfs sintético.
+- `make valgrind` saldrá con exit 1 hasta Sesión 3 del Slice 1: el binario
+  `procguard` actual es un stub que `return 1`. Valgrind no detecta leaks; el
+  exit no-cero viene del programa. Se vuelve verde cuando `src/main.c` sea real.
