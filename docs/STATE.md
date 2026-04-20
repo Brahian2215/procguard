@@ -1,7 +1,7 @@
 # Estado del Proyecto
 
 ## Última actualización
-Sesión 2 — 2026-04-19 — M3 Metrics CPU% implementado con 8 tests verdes
+Sesión 3 — 2026-04-19 — Slice 1 cerrado: main integrador + `make valgrind` verde
 
 ## Módulos completados
 - M1 Data Collector (parcial): `pg_collector_init/scan/destroy` con procfs path
@@ -13,6 +13,12 @@ Sesión 2 — 2026-04-19 — M3 Metrics CPU% implementado con 8 tests verdes
   como función pura stateless con clamp a `[0, 100*ncpus]`, sentinel `-1.0f`
   para NULL args / ID mismatch / underflow (ADRs 010–013). Pendiente para
   slices futuros: tasas I/O y red (Slice 2+), RSS trend (Slice 2+).
+- `src/util/rank` (aux): `ranked_t` + `pg_rank_cmp_cpu_desc` (ADR-016).
+  Módulo puro testeable, sobrevive a la reescritura de Slice 2 (top-N por
+  CPU% será la vista principal del TUI M6).
+- Integrador `src/main.c` (Slice 1, temporal): dos scans separados por
+  `sleep(1)`, pareo por `pg_proc_id_t`, top-5 descendente por CPU% a stdout.
+  Filtra sentinels (ADR-014), fail-loud en errores de scan (ADR-015).
 
 ## Tests pasando
 - `tests/unit/test_collector.c` — 5 tests, 5 passed, 0 failed
@@ -30,22 +36,30 @@ Sesión 2 — 2026-04-19 — M3 Metrics CPU% implementado con 8 tests verdes
   - `test_zero_elapsed`
   - `test_null_args`
   - `test_underflow_returns_sentinel`
+- `tests/unit/test_rank.c` — 3 tests, 3 passed, 0 failed
+  - `test_orders_descending`
+  - `test_orders_fractional_differences`
+  - `test_equal_cpu_returns_zero`
 
 ## Estado del build
 - `make asan` — exit 0, cero warnings bajo `-Wall -Wextra -Werror -Wshadow
   -Wpointer-arith -Wcast-align -Wstrict-prototypes -Wmissing-prototypes`.
-- `make test` — verde (13 tests totales: 5 collector + 8 metrics).
+- `make test` — verde (16 tests totales: 5 collector + 8 metrics + 3 rank).
 - `make lint-funclen` — OK (todas las funciones <= 50 líneas).
-- `make valgrind` — saldrá con exit 1 hasta Sesión 3 (el stub `src/main.c`
-  retorna 1; valgrind no detecta leaks). Documentado en TODO y DECISIONS.
+- `make valgrind` — exit 0, `0 bytes in 0 blocks lost`, `1587 allocs/1587 frees`.
+  Requiere build no-ASAN (`make clean && make debug` antes); ambos sanitizers
+  y valgrind no conviven en el mismo binario.
 
 ## Última acción ejecutada
-add slice-1 session-2: metrics cpu-percent with tests (5dfcd6e)
+add slice-1 main: two-scan cpu top-5 integrator (4dad16e)
 
 ## Próximos pasos
-1. Slice 1 / Sesión 3: `src/main.c` real — dos scans de M1 con `sleep(1)`,
-   pareo por `pg_proc_id_t`, cálculo de CPU% con `pg_metrics_cpu_percent`,
-   `qsort` descendente y top-5 a stdout. Enlazar `metrics.c` en
-   `$(BUILD_DIR)/procguard`. Hace verde `make valgrind` y cierra Slice 1
-   según `docs/plans/slice-1.md` §9–§10.
-2. Slice 2: M2 Sample Store + extensión de M1 (vmrss, I/O, gracia G=10).
+1. Slice 2 / Sesión 1: diseño de M2 Sample Store (`pg_store_init/insert/
+   get_history/destroy`) con buffer circular de N muestras por `pg_proc_id_t`.
+   Ver `docs/ROADMAP.md` §"Slice 2" — incluye extensión de M1 para `vmrss`
+   (parser de `/proc/[pid]/statm`), tasas I/O (`/proc/[pid]/io`) y el
+   período de gracia G=10 ciclos para procesos desaparecidos.
+2. Deuda técnica de Slice 1 a retomar en Slice 3 (cuando haya 2+ módulos con
+   tests): migrar a `build/tests/` con objetos ASAN reutilizables y
+   `mkdtemp` para fixtures de procfs sintético (hoy `/tmp/pg_test_proc/`
+   es fijo, colisiona con `-j`).

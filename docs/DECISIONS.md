@@ -145,3 +145,53 @@ granularidad operacional de un porcentaje (0.1%).
 interno (reordenar multiplicaciones, cachear `max_pct`, etc.). Política
 aplicable por defecto a futuras métricas float (tasas I/O, bytes por
 segundo).
+
+## ADR-014: Filtrar sentinel `-1.0f` en el ranking de Slice 1
+**Contexto:** `main.c` del integrador de Slice 1 empareja dos scans por
+`pg_proc_id_t` y llama `pg_metrics_cpu_percent`. Por construcción (pareamos
+sólo cuando pid+starttime coinciden) los casos de sentinel por NULL args o
+ID mismatch no pueden ocurrir; sí puede aparecer el sentinel por violación
+de monotonía de jiffies (ADR-012). Había tres opciones de presentación:
+imprimir `"-1.0%"` verbatim, imprimir `"N/A"`, o filtrar.
+**Decisión:** `build_ranked` descarta del ranking todo proceso con
+`cpu < 0.0f`. El top puede tener menos de 5 filas si hay sentinels.
+**Consecuencias:** alinea con la semántica ADR-011 ("salta este proceso en
+esta iteración") — el comparador `pg_rank_cmp_cpu_desc` no necesita manejar
+valores negativos como caso especial. Si el usuario ve un top corto, indica
+que hubo procesos que el M3 rechazó; queda implícito en lugar de explícito.
+Aceptable para integrador temporal; cuando llegue el ciclo de gobernanza
+(Slice 3+) la política de alertas decidirá cómo reportar sentinels de forma
+no silenciosa (probable `journalctl` con nivel `warn`).
+
+## ADR-015: Fail-loud en errores de `pg_collector_scan` en main de Slice 1
+**Contexto:** `pg_collector_scan` puede retornar `PG_ERR_IO` (procfs
+inaccesible) o `PG_ERR_MEM` (OOM). El sketch original de `docs/plans/slice-1.md`
+§9 ignoraba el retorno: una falla producía una tabla vacía con exit 0.
+**Decisión:** `main` chequea el retorno de cada scan; en error, imprime
+`"procguard: scan #N failed"` a stderr, libera recursos vía `goto cleanup` y
+`return 1`. Patrón idéntico al que §9 ya aplicaba a `pg_collector_init`.
+**Consecuencias:** comportamiento coherente (init y scan fallan igual), exit
+code propagable a shells/CI, feedback inmediato al usuario. El coste son 6
+líneas extra y un `goto` — ya dentro del patrón estándar de cleanup del
+CLAUDE.md (§"Sin `goto` excepto para cleanup..."). En Slice 3 el ciclo de
+gobernanza probablemente registrará el error como evento de M7 en lugar de
+matar el daemon, pero la política "observar errores" se mantiene.
+
+## ADR-016: Módulo `util/rank` extraído para TDD del integrador
+**Contexto:** CLAUDE.md regla 2 exige "no existe código sin test previo".
+`src/main.c` del Slice 1 es un integrador temporal (será reemplazado en
+Slice 2 por el ciclo de gobernanza con hilos), orquesta I/O y no se presta a
+unit test directo — `main` global más efectos `sleep(1)` y `sysconf`.
+El único componente puramente funcional del integrador es el comparador
+`qsort` sobre la struct `ranked_t`.
+**Decisión:** crear `src/util/rank.{c,h}` que expone `ranked_t` y
+`pg_rank_cmp_cpu_desc`. `tests/unit/test_rank.c` cubre el comparador con 3
+tests (orden descendente, guard contra truncación float→int, invariante de
+igualdad). `main.c` importa `rank.h` y queda como puro glue: 3 funciones
+static cortas (`build_ranked`, `print_top`, `main`), todas ≤ 50 líneas.
+**Consecuencias:** honra TDD en lo testeable y scope-discipline en lo
+desechable. El módulo `util/rank` sobrevive a la reescritura de Slice 2
+(el top-N por CPU% seguirá siendo una vista del TUI, M6). `main.c` queda
+sin tests unitarios — se valida con `make valgrind` + inspección visual,
+justificado por su naturaleza throwaway y explicitado en este ADR.
+

@@ -19,6 +19,7 @@ Cosas detectadas durante desarrollo que no son parte de la tarea actual.
   corren en paralelo (CI con `make -j` o varios test binaries con fixtures de
   procfs). Migrar a `mkdtemp` cuando exista >1 binario de tests con fixtures
   de procfs sintético.
-- `make valgrind` saldrá con exit 1 hasta Sesión 3 del Slice 1: el binario
-  `procguard` actual es un stub que `return 1`. Valgrind no detecta leaks; el
-  exit no-cero viene del programa. Se vuelve verde cuando `src/main.c` sea real.
+- `make valgrind` requiere build sin ASAN (los dos sanitizers y valgrind no
+  conviven); hoy el workflow es `make clean && make debug && make valgrind`.
+  Cuando Slice 3 o 4 introduzca un target CI, considerar un `make
+  valgrind-ci` explícito que haga el reset internamente.
