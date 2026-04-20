@@ -153,6 +153,51 @@ static int read_proc_statm(const char *proc_base, const char *pid_str,
     return PG_OK;
 }
 
+/* Lee /proc/[pid]/io y popula los 4 counters (rchar, wchar, read_bytes,
+ * write_bytes). Formato: pares "clave: valor" en orden arbitrario.
+ * Prefix-match en lugar de parser posicional para tolerar líneas nuevas
+ * en versiones futuras del kernel. Best-effort: si la apertura falla o
+ * una clave no aparece, los campos correspondientes quedan intactos. */
+static int read_proc_io(const char *proc_base, const char *pid_str,
+                        pg_raw_sample_t *sample)
+{
+    char path[PG_PATH_MAX];
+    int written = snprintf(path, sizeof(path), "%s/%s/io",
+                           proc_base, pid_str);
+    if (written < 0 || (size_t)written >= sizeof(path)) {
+        return PG_ERR_PARSE;
+    }
+
+    char buf[PG_STAT_BUF_SZ];
+    if (read_file(path, buf, sizeof(buf)) != PG_OK) {
+        return PG_ERR_IO;
+    }
+
+    char *saveptr = NULL;
+    for (char *line = strtok_r(buf, "\n", &saveptr); line != NULL;
+         line = strtok_r(NULL, "\n", &saveptr)) {
+        if      (strncmp(line, "rchar: ", 7)        == 0) sscanf(line +  7, "%llu", &sample->rchar);
+        else if (strncmp(line, "wchar: ", 7)        == 0) sscanf(line +  7, "%llu", &sample->wchar);
+        else if (strncmp(line, "read_bytes: ", 12)  == 0) sscanf(line + 12, "%llu", &sample->read_bytes);
+        else if (strncmp(line, "write_bytes: ", 13) == 0) sscanf(line + 13, "%llu", &sample->write_bytes);
+    }
+    return PG_OK;
+}
+
+/* Popula sample con stat (mandatorio), statm e io (best-effort aditivos).
+ * Retorna PG_OK si stat parseó; error si stat falló (el pid se salta). */
+static int populate_sample(const char *proc_base, const char *pid_str,
+                           pg_raw_sample_t *sample)
+{
+    memset(sample, 0, sizeof(*sample));
+    if (read_proc_stat(proc_base, pid_str, sample) != PG_OK) {
+        return PG_ERR_PARSE;
+    }
+    (void)read_proc_statm(proc_base, pid_str, sample);
+    (void)read_proc_io(proc_base, pid_str, sample);
+    return PG_OK;
+}
+
 /* Crece arr a new_cap elementos. Retorna PG_OK o PG_ERR_MEM. */
 static int grow_array(pg_raw_sample_t **arr, size_t new_cap)
 {
@@ -223,13 +268,9 @@ int pg_collector_scan(pg_collector_t *col,
             cap = new_cap;
         }
         pg_raw_sample_t sample;
-        memset(&sample, 0, sizeof(sample));
-        if (read_proc_stat(col->proc_base, ent->d_name, &sample) != PG_OK) {
+        if (populate_sample(col->proc_base, ent->d_name, &sample) != PG_OK) {
             continue; /* skip silencioso (best-effort) */
         }
-        /* statm y io son best-effort aditivos: si fallan, los campos
-         * quedan en 0 y el sample se incluye igualmente (ADR-022). */
-        (void)read_proc_statm(col->proc_base, ent->d_name, &sample);
         sample.timestamp_ms = ts_ms;
         arr[n++] = sample;
     }

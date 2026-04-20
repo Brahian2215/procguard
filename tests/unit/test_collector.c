@@ -70,6 +70,18 @@ void setUp(void)
     /* Sólo pid 100 tiene statm; pids 200 y 300 lo omiten para cubrir el
      * caso silent-fail (campo vmrss_bytes queda en 0). */
     write_proc_file(100, "statm", "1000 250 50 10 0 240 0\n");
+
+    /* Sólo pid 100 tiene io; formato real del kernel (pares clave: valor).
+     * El parser debe tolerar orden arbitrario y líneas extra (syscr,
+     * syscw, cancelled_write_bytes). */
+    write_proc_file(100, "io",
+        "rchar: 1024\n"
+        "wchar: 2048\n"
+        "syscr: 10\n"
+        "syscw: 20\n"
+        "read_bytes: 512\n"
+        "write_bytes: 1024\n"
+        "cancelled_write_bytes: 0\n");
 }
 
 void tearDown(void)
@@ -226,6 +238,35 @@ static void test_vmrss_populated_and_absent(void)
     pg_collector_destroy(col);
 }
 
+static void test_io_counters_populated_and_absent(void)
+{
+    pg_collector_t *col = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
+
+    pg_raw_sample_t *out = NULL;
+    size_t n = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_scan(col, &out, &n));
+    TEST_ASSERT_EQUAL_size_t(3, n);
+
+    const pg_raw_sample_t *s100 = find_sample(out, n, 100);
+    TEST_ASSERT_NOT_NULL(s100);
+    TEST_ASSERT_EQUAL_UINT64(1024, s100->rchar);
+    TEST_ASSERT_EQUAL_UINT64(2048, s100->wchar);
+    TEST_ASSERT_EQUAL_UINT64( 512, s100->read_bytes);
+    TEST_ASSERT_EQUAL_UINT64(1024, s100->write_bytes);
+
+    /* Pids 200 y 300 sin io → silent-fail → counters en 0. */
+    const pg_raw_sample_t *s200 = find_sample(out, n, 200);
+    TEST_ASSERT_NOT_NULL(s200);
+    TEST_ASSERT_EQUAL_UINT64(0, s200->rchar);
+    TEST_ASSERT_EQUAL_UINT64(0, s200->wchar);
+    TEST_ASSERT_EQUAL_UINT64(0, s200->read_bytes);
+    TEST_ASSERT_EQUAL_UINT64(0, s200->write_bytes);
+
+    free(out);
+    pg_collector_destroy(col);
+}
+
 /* --- Runner -------------------------------------------------------------- */
 
 int main(void)
@@ -237,5 +278,6 @@ int main(void)
     RUN_TEST(test_malformed_stat_is_skipped);
     RUN_TEST(test_parses_comm_with_internal_parens);
     RUN_TEST(test_vmrss_populated_and_absent);
+    RUN_TEST(test_io_counters_populated_and_absent);
     return UNITY_END();
 }
