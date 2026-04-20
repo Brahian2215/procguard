@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #define TEST_PROC_BASE "/tmp/pg_test_proc"
 
@@ -20,6 +21,20 @@ static void write_stat(int pid, const char *content)
 
     mkdir(dir, 0755);
 
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        return;
+    }
+    fputs(content, f);
+    fclose(f);
+}
+
+/* Escribe /tmp/pg_test_proc/<pid>/<name> con contenido arbitrario.
+ * El directorio <pid>/ ya debe existir (write_stat lo crea). */
+static void write_proc_file(int pid, const char *name, const char *content)
+{
+    char path[192];
+    snprintf(path, sizeof(path), TEST_PROC_BASE "/%d/%s", pid, name);
     FILE *f = fopen(path, "w");
     if (f == NULL) {
         return;
@@ -51,6 +66,10 @@ void setUp(void)
         "200 (nginx) S 1 200 200 0 -1 0 0 0 0 0 200 100 0 0 20 0 1 0 67890 0 0\n");
     write_stat(300,
         "300 (python3) R 100 300 300 0 -1 0 0 0 0 0 500 200 0 0 20 0 1 0 11111 0 0\n");
+
+    /* Sólo pid 100 tiene statm; pids 200 y 300 lo omiten para cubrir el
+     * caso silent-fail (campo vmrss_bytes queda en 0). */
+    write_proc_file(100, "statm", "1000 250 50 10 0 240 0\n");
 }
 
 void tearDown(void)
@@ -178,6 +197,35 @@ static void test_parses_comm_with_internal_parens(void)
     pg_collector_destroy(col);
 }
 
+static void test_vmrss_populated_and_absent(void)
+{
+    pg_collector_t *col = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
+
+    pg_raw_sample_t *out = NULL;
+    size_t n = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_scan(col, &out, &n));
+    TEST_ASSERT_EQUAL_size_t(3, n);
+
+    /* Pid 100 tiene statm con resident=250 páginas. */
+    const pg_raw_sample_t *s100 = find_sample(out, n, 100);
+    TEST_ASSERT_NOT_NULL(s100);
+    unsigned long long expected_bytes =
+        250ULL * (unsigned long long)sysconf(_SC_PAGESIZE);
+    TEST_ASSERT_EQUAL_UINT64(expected_bytes, s100->vmrss_bytes);
+
+    /* Pids 200 y 300 no tienen statm → silent-fail → vmrss_bytes == 0. */
+    const pg_raw_sample_t *s200 = find_sample(out, n, 200);
+    const pg_raw_sample_t *s300 = find_sample(out, n, 300);
+    TEST_ASSERT_NOT_NULL(s200);
+    TEST_ASSERT_NOT_NULL(s300);
+    TEST_ASSERT_EQUAL_UINT64(0, s200->vmrss_bytes);
+    TEST_ASSERT_EQUAL_UINT64(0, s300->vmrss_bytes);
+
+    free(out);
+    pg_collector_destroy(col);
+}
+
 /* --- Runner -------------------------------------------------------------- */
 
 int main(void)
@@ -188,5 +236,6 @@ int main(void)
     RUN_TEST(test_recycled_pid);
     RUN_TEST(test_malformed_stat_is_skipped);
     RUN_TEST(test_parses_comm_with_internal_parens);
+    RUN_TEST(test_vmrss_populated_and_absent);
     return UNITY_END();
 }

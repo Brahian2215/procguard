@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #define PG_STAT_BUF_SZ      4096
 #define PG_PID_INITIAL_CAP  64
@@ -123,6 +124,35 @@ static int read_proc_stat(const char *proc_base, const char *pid_str,
     return parse_stat(buf, sample);
 }
 
+/* Lee /proc/[pid]/statm y popula sample->vmrss_bytes.
+ * Formato: "size resident shared text lib data dt" (páginas).
+ * Best-effort: si falla, deja vmrss_bytes intacto (caller lo inicializó a 0).
+ * %*s salta el primer campo sin gatillar -Werror=format= (ver
+ * MAKEFILE_GOTCHAS §1; no se puede usar %*lu/%*llu con supresor). */
+static int read_proc_statm(const char *proc_base, const char *pid_str,
+                           pg_raw_sample_t *sample)
+{
+    char path[PG_PATH_MAX];
+    int written = snprintf(path, sizeof(path), "%s/%s/statm",
+                           proc_base, pid_str);
+    if (written < 0 || (size_t)written >= sizeof(path)) {
+        return PG_ERR_PARSE;
+    }
+
+    char buf[PG_STAT_BUF_SZ];
+    if (read_file(path, buf, sizeof(buf)) != PG_OK) {
+        return PG_ERR_IO;
+    }
+
+    unsigned long long resident_pages = 0;
+    if (sscanf(buf, "%*s %llu", &resident_pages) != 1) {
+        return PG_ERR_PARSE;
+    }
+    sample->vmrss_bytes =
+        resident_pages * (unsigned long long)sysconf(_SC_PAGESIZE);
+    return PG_OK;
+}
+
 /* Crece arr a new_cap elementos. Retorna PG_OK o PG_ERR_MEM. */
 static int grow_array(pg_raw_sample_t **arr, size_t new_cap)
 {
@@ -197,6 +227,9 @@ int pg_collector_scan(pg_collector_t *col,
         if (read_proc_stat(col->proc_base, ent->d_name, &sample) != PG_OK) {
             continue; /* skip silencioso (best-effort) */
         }
+        /* statm y io son best-effort aditivos: si fallan, los campos
+         * quedan en 0 y el sample se incluye igualmente (ADR-022). */
+        (void)read_proc_statm(col->proc_base, ent->d_name, &sample);
         sample.timestamp_ms = ts_ms;
         arr[n++] = sample;
     }
