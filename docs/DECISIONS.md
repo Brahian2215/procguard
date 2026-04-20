@@ -93,3 +93,55 @@ pg_collector_t;` en el header, definición completa en el `.c`).
 gracia G=10, caché del último scan, mutex futuros) sin romper la API ni el ABI
 de los callers. Coste actual: una indirección extra al acceder al estado interno
 (despreciable).
+
+## ADR-010: `pg_metrics_cpu_percent` recibe `ncpus` como parámetro
+**Contexto:** el clamp superior del resultado es `100 * ncpus`. Se podría
+consultar `sysconf(_SC_NPROCESSORS_ONLN)` internamente en cada llamada o
+inyectarlo como parámetro por simetría con `hz`.
+**Decisión:** firma `pg_metrics_cpu_percent(prev, curr, hz, ncpus)`. El caller
+(loop de gobernanza / main de Slice 1) consulta `sysconf` una vez y propaga.
+**Consecuencias:** tests deterministas — no dependen del núcleo de CPUs del
+host. Sin syscall en hot-path. Coherente con la filosofía de M3 como cálculo
+puro. El caller asume la responsabilidad de pasar un `ncpus` sensato; M3 aplica
+`max(ncpus, 1)` como red de seguridad defensiva.
+
+## ADR-011: Sentinel único `-1.0f` para "muestra inutilizable" en M3
+**Contexto:** M3 devuelve `float`. ADR-005 establece que las APIs públicas
+deben detectar NULL. Hay tres clases de error convergentes: NULL args, ID
+mismatch (pid o starttime distintos) y violación de monotonía. Se consideró
+NaN, cambiar a firma `int*` con out-param, o un único sentinel.
+**Decisión:** `-1.0f` es el único valor de error. Caller verifica `result <
+0.0f`. Aplica a (a) prev o curr NULL, (b) ID mismatch, (c) underflow
+jiffies.
+**Consecuencias:** API mínima y sin dependencia de `<math.h>`. El valor
+`-1.0f` es imposible como resultado válido porque M3 clampa a `[0.0f,
+100*ncpus]`. Semánticamente todos los casos son "no hay delta computable con
+estas dos muestras" — una distinción más fina no aporta al caller de Slice 1
+(main, luego governance loop): ambas respuestas son "salta este proceso en
+esta iteración".
+
+## ADR-012: Chequeo explícito de underflow `utime+stime` en M3
+**Contexto:** `delta_cpu = (curr->utime+stime) - (prev->utime+stime)` con
+aritmética `unsigned long long`. Si por alguna razón `prev > curr` (pid
+reciclado con mismo starttime por casualidad astronómica, corrupción de M1,
+bug futuro) el resultado hace wrap a un número enorme y el clamp final lo
+lleva a `100 * ncpus` en lugar de a 0 — falsa alarma de saturación.
+**Decisión:** comprobación explícita antes de restar; retorna -1.0f si
+`curr_cpu < prev_cpu`. `timestamp_ms` (CLOCK_MONOTONIC, mismo boot) no
+requiere el mismo chequeo porque el kernel garantiza monotonía (ADR-008).
+**Consecuencias:** un compare-and-branch extra; robustez ante violaciones de
+invariante de módulos aguas arriba. Test `underflow_returns_sentinel`
+protege contra regresiones. Principio general aplicable a futuras métricas
+con aritmética unsigned sobre deltas (I/O rates en Slice 2, etc.).
+
+## ADR-013: Tolerancia de tests float = 1e-3 via `TEST_ASSERT_FLOAT_WITHIN`
+**Contexto:** la fórmula de CPU% combina aritmética `double` con cast final a
+`float`. `TEST_ASSERT_EQUAL_FLOAT` (tolerancia ~1 ULP / 1.19e-7) funciona
+para los tests actuales pero es frágil ante reordenamientos del cálculo.
+**Decisión:** todos los tests de M3 usan `TEST_ASSERT_FLOAT_WITHIN(0.001f,
+expected, actual)`. Tolerancia 1e-3 es tres órdenes de magnitud menor que la
+granularidad operacional de un porcentaje (0.1%).
+**Consecuencias:** los tests sobreviven a cambios razonables del cálculo
+interno (reordenar multiplicaciones, cachear `max_pct`, etc.). Política
+aplicable por defecto a futuras métricas float (tasas I/O, bytes por
+segundo).

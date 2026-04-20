@@ -82,7 +82,14 @@ $(BUILD_DIR)/test_collector: $(TEST_UNIT_DIR)/test_collector.c \
 	  -I$(UNITY_DIR) -Isrc/common -Isrc/collector \
 	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
-TEST_BINS := $(BUILD_DIR)/test_collector
+# test_metrics: M3 es función pura; metrics.c se compila inline.
+$(BUILD_DIR)/test_metrics: $(TEST_UNIT_DIR)/test_metrics.c \
+		src/metrics/metrics.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
+	  -I$(UNITY_DIR) -Isrc/common -Isrc/metrics \
+	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
+
+TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics
 
 test: $(TEST_BINS)
 	@failed=0; \
