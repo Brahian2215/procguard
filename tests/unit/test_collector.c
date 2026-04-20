@@ -63,7 +63,7 @@ void tearDown(void)
 static void test_scan_finds_all_three(void)
 {
     pg_collector_t *col = NULL;
-    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
 
     pg_raw_sample_t *out = NULL;
     size_t n = 0;
@@ -81,7 +81,7 @@ static void test_scan_finds_all_three(void)
 static void test_disappeared_process(void)
 {
     pg_collector_t *col = NULL;
-    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
 
     pg_raw_sample_t *out1 = NULL;
     size_t n1 = 0;
@@ -105,7 +105,7 @@ static void test_disappeared_process(void)
 static void test_recycled_pid(void)
 {
     pg_collector_t *col = NULL;
-    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
 
     pg_raw_sample_t *out1 = NULL;
     size_t n1 = 0;
@@ -137,7 +137,7 @@ static void test_recycled_pid(void)
 static void test_malformed_stat_is_skipped(void)
 {
     pg_collector_t *col = NULL;
-    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
 
     /* pid 400 con stat vacío (malformado) */
     write_stat(400, "");
@@ -155,7 +155,7 @@ static void test_malformed_stat_is_skipped(void)
 static void test_parses_comm_with_internal_parens(void)
 {
     pg_collector_t *col = NULL;
-    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
 
     /* comm = "weird ) name" — contiene ')' interno y espacios.
      * El parser correcto debe usar el ÚLTIMO ')' como delimitador. */

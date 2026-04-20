@@ -29,7 +29,7 @@ int main(int argc, char *argv[])
     }
 
     pg_collector_t *col = NULL;
-    if (pg_collector_init(&col, proc_base) != PG_OK) {
+    if (pg_collector_init(&col, proc_base, false) != PG_OK) {
         fprintf(stderr, "procguard: collector init failed\n");
         return 1;
     }

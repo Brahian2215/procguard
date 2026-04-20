@@ -25,9 +25,15 @@ typedef struct {
     unsigned long long utime;        /* jiffies en modo usuario */
     unsigned long long stime;        /* jiffies en modo kernel */
     unsigned long long timestamp_ms; /* CLOCK_MONOTONIC en ms al momento del scan */
-} pg_raw_sample_t;
 
-/* vmrss se introduce en Slice 2 (requiere leer /proc/[pid]/statm por separado) */
+    /* Slice 2 — campos append-only (ADR-022). 0 si la lectura del archivo
+     * correspondiente falla (permisos, race con exit, kernel thread). */
+    unsigned long long vmrss_bytes;  /* /proc/[pid]/statm campo 2 * pagesize */
+    unsigned long long rchar;        /* /proc/[pid]/io */
+    unsigned long long wchar;        /* /proc/[pid]/io */
+    unsigned long long read_bytes;   /* /proc/[pid]/io */
+    unsigned long long write_bytes;  /* /proc/[pid]/io */
+} pg_raw_sample_t;
 
 #define PG_GRACE_CYCLES 10
 

@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 
 struct pg_collector {
     char *proc_base;
+    bool  skip_kt; /* si true, scan omite kthreadd y sus hijos (ADR-021) */
 };
 
 /* --- helpers internos ---------------------------------------------------- */
@@ -134,7 +136,8 @@ static int grow_array(pg_raw_sample_t **arr, size_t new_cap)
 
 /* --- API pública --------------------------------------------------------- */
 
-int pg_collector_init(pg_collector_t **col, const char *proc_base)
+int pg_collector_init(pg_collector_t **col, const char *proc_base,
+                      bool skip_kernel_threads)
 {
     if (col == NULL || proc_base == NULL) {
         return PG_ERR_PARSE;
@@ -150,6 +153,7 @@ int pg_collector_init(pg_collector_t **col, const char *proc_base)
         free(c);
         return PG_ERR_MEM;
     }
+    c->skip_kt = skip_kernel_threads;
 
     *col = c;
     return PG_OK;
