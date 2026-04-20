@@ -301,6 +301,17 @@ TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics
 
 ## Sesión 3 — main.c de integración + output visible
 
+> **Nota post-implementación (2026-04-19)**: el sketch de §9 abajo se
+> mantiene como referencia histórica. La revisión crítica pre-TDD detectó
+> tres defectos (firma de 3 args de `pg_metrics_cpu_percent` en lugar de 4,
+> `cmp_cpu_desc` referenciando un typedef local a main, y retorno de
+> `pg_collector_scan` ignorado) y tres huecos de decisión. La versión
+> shipped vive en `src/main.c` y sus decisiones están registradas como
+> **ADR-014** (filtrar sentinel -1.0f en el ranking), **ADR-015**
+> (fail-loud en errores de scan) y **ADR-016** (extracción de
+> `src/util/rank` + unit tests del comparador). Lee los ADRs y el código,
+> no el sketch de abajo, si quieres entender el integrador actual.
+
 ### 9. `src/main.c` (reemplaza el stub)
 
 ```c
