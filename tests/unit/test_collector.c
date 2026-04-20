@@ -267,6 +267,38 @@ static void test_io_counters_populated_and_absent(void)
     pg_collector_destroy(col);
 }
 
+static void test_kernel_thread_filter(void)
+{
+    /* Dos kernel threads encima del fixture base de 3 user processes:
+     * kthreadd (pid 2) con ppid=0; kworker (pid 50) con ppid=2. */
+    write_stat(2,
+        "2 (kthreadd) S 0 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 1 0 0\n");
+    write_stat(50,
+        "50 (kworker/0:0) S 2 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 2 0 0\n");
+
+    /* flag=false: scan devuelve los 5 procesos. */
+    pg_collector_t *col = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
+    pg_raw_sample_t *out = NULL;
+    size_t n = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_scan(col, &out, &n));
+    TEST_ASSERT_EQUAL_size_t(5, n);
+    free(out);
+    pg_collector_destroy(col);
+
+    /* flag=true: kthreadd y kworker filtrados; quedan los 3 user procs. */
+    col = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, true));
+    out = NULL; n = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_scan(col, &out, &n));
+    TEST_ASSERT_EQUAL_size_t(3, n);
+    TEST_ASSERT_NULL(find_sample(out, n, 2));
+    TEST_ASSERT_NULL(find_sample(out, n, 50));
+    TEST_ASSERT_NOT_NULL(find_sample(out, n, 100));
+    free(out);
+    pg_collector_destroy(col);
+}
+
 /* --- Runner -------------------------------------------------------------- */
 
 int main(void)
@@ -279,5 +311,6 @@ int main(void)
     RUN_TEST(test_parses_comm_with_internal_parens);
     RUN_TEST(test_vmrss_populated_and_absent);
     RUN_TEST(test_io_counters_populated_and_absent);
+    RUN_TEST(test_kernel_thread_filter);
     return UNITY_END();
 }

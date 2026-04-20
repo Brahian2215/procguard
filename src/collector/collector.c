@@ -271,6 +271,9 @@ int pg_collector_scan(pg_collector_t *col,
         if (populate_sample(col->proc_base, ent->d_name, &sample) != PG_OK) {
             continue; /* skip silencioso (best-effort) */
         }
+        if (col->skip_kt && (sample.ppid == 2 || sample.id.pid == 2)) {
+            continue; /* kernel thread filtrado (ADR-021) */
+        }
         sample.timestamp_ms = ts_ms;
         arr[n++] = sample;
     }
