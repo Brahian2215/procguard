@@ -40,7 +40,7 @@ Sesión 2 — 2026-04-19 — M3 Metrics CPU% implementado con 8 tests verdes
   retorna 1; valgrind no detecta leaks). Documentado en TODO y DECISIONS.
 
 ## Última acción ejecutada
-add slice-1 session-2: metrics cpu-percent with tests (commit pendiente)
+add slice-1 session-2: metrics cpu-percent with tests (5dfcd6e)
 
 ## Próximos pasos
 1. Slice 1 / Sesión 3: `src/main.c` real — dos scans de M1 con `sleep(1)`,
