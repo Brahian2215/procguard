@@ -1,16 +1,16 @@
 #ifndef PG_RANK_H
 #define PG_RANK_H
 
-#include <sys/types.h>
+#include "pg_types.h"
 
 /*
  * ranked_t — fila materializada para el ranking top-N por CPU%.
- * comm[256] coincide con sizeof(pg_raw_sample_t::comm); se copia con
- * memcpy para evitar -Werror=format-truncation.
+ * comm[PG_COMM_MAX] enlaza explícitamente con pg_raw_sample_t::comm;
+ * se copia con memcpy para evitar -Werror=format-truncation.
  */
 typedef struct {
     pid_t pid;
-    char  comm[256];
+    char  comm[PG_COMM_MAX];
     float cpu;
 } ranked_t;
 

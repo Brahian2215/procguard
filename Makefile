@@ -93,7 +93,7 @@ $(BUILD_DIR)/test_metrics: $(TEST_UNIT_DIR)/test_metrics.c \
 $(BUILD_DIR)/test_rank: $(TEST_UNIT_DIR)/test_rank.c \
 		src/util/rank.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
-	  -I$(UNITY_DIR) -Isrc/util \
+	  -I$(UNITY_DIR) -Isrc/common -Isrc/util \
 	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
 TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
