@@ -117,7 +117,7 @@ test-quick: $(TEST_BINS)
 valgrind: $(BUILD_DIR)/procguard
 	valgrind --leak-check=full --error-exitcode=1 $(BUILD_DIR)/procguard
 
-# Stub binario: desbloquea make debug/asan hasta que main.c sea real.
-$(BUILD_DIR)/procguard: src/collector/collector.c src/main.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Isrc/common -Isrc/collector \
+$(BUILD_DIR)/procguard: src/collector/collector.c src/metrics/metrics.c \
+		src/main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc/common -Isrc/collector -Isrc/metrics \
 	  $^ -o $@ $(LDFLAGS) $(LDLIBS)
