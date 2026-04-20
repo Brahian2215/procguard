@@ -89,7 +89,15 @@ $(BUILD_DIR)/test_metrics: $(TEST_UNIT_DIR)/test_metrics.c \
 	  -I$(UNITY_DIR) -Isrc/common -Isrc/metrics \
 	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
-TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics
+# test_rank: comparador puro de ranked_t para qsort descendente.
+$(BUILD_DIR)/test_rank: $(TEST_UNIT_DIR)/test_rank.c \
+		src/util/rank.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
+	  -I$(UNITY_DIR) -Isrc/util \
+	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
+
+TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
+             $(BUILD_DIR)/test_rank
 
 test: $(TEST_BINS)
 	@failed=0; \
