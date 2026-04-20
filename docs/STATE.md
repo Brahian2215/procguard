@@ -46,9 +46,10 @@ Sesión 3 — 2026-04-19 — Slice 1 cerrado: main integrador + `make valgrind` 
   -Wpointer-arith -Wcast-align -Wstrict-prototypes -Wmissing-prototypes`.
 - `make test` — verde (16 tests totales: 5 collector + 8 metrics + 3 rank).
 - `make lint-funclen` — OK (todas las funciones <= 50 líneas).
-- `make valgrind` — exit 0, `0 bytes in 0 blocks lost`, `1587 allocs/1587 frees`.
-  Requiere build no-ASAN (`make clean && make debug` antes); ambos sanitizers
-  y valgrind no conviven en el mismo binario.
+- `make valgrind` — exit 0, `0 bytes in 0 blocks lost`, allocs == frees.
+  Requiere build no-ASAN (`make clean && make debug` antes): ASan interpone
+  su propio malloc y no convive con memcheck en el mismo binario. UBSan por
+  sí solo sí convive, pero nuestro `CFLAGS_ASAN` activa ambos.
 
 ## Última acción ejecutada
 add slice-1 main: two-scan cpu top-5 integrator (4dad16e)
