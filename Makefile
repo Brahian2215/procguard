@@ -126,6 +126,6 @@ valgrind: $(BUILD_DIR)/procguard
 	valgrind --leak-check=full --error-exitcode=1 $(BUILD_DIR)/procguard
 
 $(BUILD_DIR)/procguard: src/collector/collector.c src/metrics/metrics.c \
-		src/main.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Isrc/common -Isrc/collector -Isrc/metrics \
+		src/util/rank.c src/main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc/common -Isrc/collector -Isrc/metrics -Isrc/util \
 	  $^ -o $@ $(LDFLAGS) $(LDLIBS)
