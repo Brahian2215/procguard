@@ -96,8 +96,16 @@ $(BUILD_DIR)/test_rank: $(TEST_UNIT_DIR)/test_rank.c \
 	  -I$(UNITY_DIR) -Isrc/common -Isrc/util \
 	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
+# test_store: M2 Sample Store. Linkea collector.c también para el test de
+# integración end-to-end scan → insert → get_history.
+$(BUILD_DIR)/test_store: $(TEST_UNIT_DIR)/test_store.c \
+		src/store/store.c src/collector/collector.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
+	  -I$(UNITY_DIR) -Isrc/common -Isrc/store -Isrc/collector \
+	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
+
 TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
-             $(BUILD_DIR)/test_rank
+             $(BUILD_DIR)/test_rank $(BUILD_DIR)/test_store
 
 test: $(TEST_BINS)
 	@failed=0; \
