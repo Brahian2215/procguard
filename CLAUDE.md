@@ -62,28 +62,56 @@ Ciclo de gobernanza (10 pasos en orden fijo):
    presenta un plan breve: qué archivos vas a tocar, qué funciones vas a
    crear/cambiar, qué tests vas a escribir. Espera mi OK antes de ejecutar.
 
+   **Flujo de plan obligatorio**:
+   1. Lee el plan técnico de la sesión (`docs/plans/slice-N.md` sección
+      correspondiente) si existe.
+   2. **Revisión crítica**: identifica ambigüedades, contradicciones,
+      decisiones que el plan no tomó, off-by-one en conteos, suposiciones
+      sobre APIs externas. NO asumas — pregunta.
+   3. **Resuelve ambigüedades vía AskUserQuestion** ANTES de ExitPlanMode.
+      Cada respuesta del usuario que defina una decisión arquitectónica
+      se registra como ADR en `docs/DECISIONS.md` ANTES del commit final.
+   4. ExitPlanMode con plan que incorpora las decisiones tomadas.
+
 2. **TDD estricto.** Para toda función no trivial: escribe el test primero,
    ejecútalo y confirma que falla, escribe la implementación mínima,
    ejecuta y confirma que pasa, refactoriza, vuelve a correr tests.
    No existe código sin test previo.
 
-3. **Compilar y testear tras cada cambio.** Después de cada modificación,
+   - Para iteración rápida en RED-GREEN, usa `make test-quick` (desactiva
+     leak detection de ASAN para que las assertions no queden ocultas
+     por dump de leaks cuando un test falla y no llega al cleanup).
+   - Para verificación final antes de commit, usa `make test` (con leak
+     detection completa).
+
+3. **Mini-spike pre-TDD para APIs no triviales.** Si el plan requiere
+   usar sintaxis no obvia (sscanf complejo, pthread, ioctl, syscalls
+   exóticas), compila un mini-snippet con los flags reales del proyecto
+   ANTES de escribir tests. Treinta segundos que ahorran un round-trip
+   de "el test compila pero el código de producción no". Consulta
+   `docs/MAKEFILE_GOTCHAS.md` para gotchas conocidos.
+
+4. **Compilar y testear tras cada cambio.** Después de cada modificación,
    ejecuta `make asan && make test`. Si algo falla, arregla antes de
    continuar. Nunca avances con el árbol en estado roto.
 
-4. **Commits frecuentes.** Commit tras cada tarea que deja el árbol verde.
+5. **Commits frecuentes.** Commit tras cada tarea que deja el árbol verde.
    Mensajes en formato imperativo ("add collector skeleton", no "added...").
    Nunca commits que rompen el build.
 
-5. **Scope discipline.** Haz exactamente lo pedido, nada más. Si ves algo
+6. **Scope discipline.** Haz exactamente lo pedido, nada más. Si ves algo
    que deberías cambiar fuera del scope, anótalo en `docs/TODO.md` y sigue.
 
-6. **Cuestiona malas decisiones.** Si detectas que lo que pido llevará a
+7. **Cuestiona malas decisiones.** Si detectas que lo que pido llevará a
    mala arquitectura, dimelo antes de implementarlo. Mejor perder 5 minutos
    discutiendo que 5 horas rehaciendo.
 
-7. **No inventes APIs.** Antes de usar una función de sistema (syscall o
+8. **No inventes APIs.** Antes de usar una función de sistema (syscall o
    libc), verifica su firma exacta en el manual. En C, asumir hace crashes.
+
+9. **Funciones ≤50 líneas, enforced.** Antes del commit final, ejecuta
+   `make lint-funclen`. Si reporta funciones largas, refactoriza
+   (extraer helpers `static`) hasta que el target salga limpio.
 
 ## Estándares de código
 
@@ -162,11 +190,20 @@ No implementes un módulo sin que sus prerequisitos pasen sus propios tests.
 
 ## Archivos de memoria del proyecto
 
-- `docs/STATE.md`: estado actual, módulos completos, próximos pasos.
-  Lee este archivo al inicio de cada sesión nueva.
-- `docs/DECISIONS.md`: decisiones arquitectónicas con justificación.
-  Consulta cuando tengas duda sobre el porqué de algo.
-- `docs/TODO.md`: tareas pendientes fuera del scope actual.
+Lee al inicio de cada sesión nueva:
+- `docs/STATE.md` — estado actual, módulos completos, próximos pasos
+- `docs/ROADMAP.md` — mapa de slices restantes (alto nivel)
+
+Consulta según necesidad:
+- `docs/DECISIONS.md` — decisiones arquitectónicas (ADRs) con justificación
+- `docs/TODO.md` — deuda técnica fuera del scope actual
+- `docs/MAKEFILE_GOTCHAS.md` — warnings y errores no obvios del compilador
+  con sus fixes
+- `docs/concurrency.md` — modelo de tres hilos (extracto de PDF §5.11);
+  prerequisito de cualquier código que toque hilos o estructuras compartidas
+- `docs/plans/slice-N.md` — plan técnico detallado del slice N
+- `docs/ProcGuard_Proyecto_Final.pdf` — spec completa; sólo cuando se pida
+  explícitamente o se necesite la sección de un módulo concreto
 
 ### Template obligatorio para STATE.md
 
