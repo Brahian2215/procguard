@@ -14,6 +14,7 @@
 #include "metrics.h"
 #include "rank.h"
 
+static int    read_system_params(long *hz, long *ncpus);
 static size_t build_ranked(const pg_raw_sample_t *prev, size_t prev_n,
                            const pg_raw_sample_t *curr, size_t curr_n,
                            long hz, long ncpus, ranked_t *out);
@@ -22,8 +23,10 @@ static void   print_top(const ranked_t *ranked, size_t n, size_t top_k);
 int main(int argc, char *argv[])
 {
     const char *proc_base = (argc > 1) ? argv[1] : "/proc";
-    long hz    = sysconf(_SC_CLK_TCK);
-    long ncpus = sysconf(_SC_NPROCESSORS_ONLN);
+    long hz, ncpus;
+    if (read_system_params(&hz, &ncpus) != 0) {
+        return 1;
+    }
 
     pg_collector_t *col = NULL;
     if (pg_collector_init(&col, proc_base) != PG_OK) {
@@ -64,6 +67,23 @@ cleanup:
     free(curr);
     pg_collector_destroy(col);
     return rc;
+}
+
+/*
+ * Lee los parámetros del sistema que M3 requiere como ncpus+hz inyectados
+ * (ADR-010). Ambos sysconf devuelven -1 sin setear errno bajo fallo; se
+ * tratan igual que cualquier otro error fatal de main (D5/ADR-015).
+ */
+static int read_system_params(long *hz, long *ncpus)
+{
+    *hz    = sysconf(_SC_CLK_TCK);
+    *ncpus = sysconf(_SC_NPROCESSORS_ONLN);
+    if (*hz <= 0 || *ncpus <= 0) {
+        fprintf(stderr, "procguard: sysconf failed (hz=%ld, ncpus=%ld)\n",
+                *hz, *ncpus);
+        return 1;
+    }
+    return 0;
 }
 
 /*
