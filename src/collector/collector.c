@@ -17,7 +17,7 @@
 
 struct pg_collector {
     char *proc_base;
-    bool  skip_kt; /* si true, scan omite kthreadd y sus hijos (ADR-021) */
+    bool  skip_kt; /* si true, scan omite kthreadd (pid 2) y sus hijos */
 };
 
 /* --- helpers internos ---------------------------------------------------- */
@@ -272,7 +272,7 @@ int pg_collector_scan(pg_collector_t *col,
             continue; /* skip silencioso (best-effort) */
         }
         if (col->skip_kt && (sample.ppid == 2 || sample.id.pid == 2)) {
-            continue; /* kernel thread filtrado (ADR-021) */
+            continue; /* kernel thread filtrado: pid 2 o ppid 2 */
         }
         sample.timestamp_ms = ts_ms;
         arr[n++] = sample;

@@ -10,7 +10,7 @@ typedef struct pg_collector pg_collector_t; /* opaco */
 /*
  * Inicializa el colector. proc_base es la raíz de procfs (normalmente "/proc").
  * skip_kernel_threads: si true, el scan omite procesos con pid == 2 (kthreadd)
- * o ppid == 2 (hilos de kernel). Heurística ADR-021.
+ * o ppid == 2 (hilos de kernel).
  *
  * Retorna:
  *   PG_OK         éxito (*col contiene un colector inicializado)

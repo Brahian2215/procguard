@@ -54,27 +54,69 @@ Crear `docs/plans/slice-4.md` con brainstorming previo.
 
 ## Deuda técnica
 
-- **Red por-proceso diferida.** `/proc/[pid]/net/dev` fuera del netns del
-  proceso no da datos por-PID — el archivo refleja el netns del lector
-  (host procfs), no el del target. Para leer el netns del proceso hay
-  que `setns` + reabrir el file, lo cual requiere `CAP_SYS_ADMIN`. Rompe
-  la premisa "M3 = funciones puras" (exige I/O a procfs del target).
-  Decisión de dónde vive la lectura pospuesta hasta que M5 defina acceso
-  a procfs y/o se resuelva el modelo de privilegios.
-- **Referencias ADR en M1 colgadas.** `src/collector/collector.{c,h}` cita
-  ADR-021 (skip kernel threads) que no existe en `DECISIONS.md`. Limpiar
-  en chore futuro: o se añade ADR-021 real, o se sustituye por texto sin
-  número. Fuera del scope de Slice 3 (se limpió sólo lo relativo a M3).
+- **Red por-proceso (correlación socket↔proceso).** PDF §4.2 prescribe:
+  leer la tabla global de sockets desde `/proc/net/tcp` + `/proc/net/udp`,
+  recorrer `/proc/[pid]/fd/` con `readlink()` identificando descriptores
+  socket (formato `socket:[inodo]`), y correlacionar inodos para mapear
+  conexiones ↔ PID. No requiere privilegios especiales (a diferencia de
+  leer `/proc/[pid]/net/dev` en un netns ajeno). Alimenta tres métricas
+  (`net_connections`, `net_bytes_rate`, `net_sockets`) y la heurística
+  M5 port_scan. Por costo computacional, PDF §4.2 define
+  `net_sample_divisor = 4` (correlación cada N ciclos, no cada ciclo).
+  Destino: **Slice 5** junto con M5 Security (consumidor natural).
+
+- **Métricas del catálogo PDF §5.3 pendientes.** ProcGuard declara 10
+  métricas canónicas; M3 actual cubre 3. Pendientes con fuente y slice
+  objetivo:
+
+  | Métrica | Identificador | Fuente | Slice |
+  |---|---|---|---|
+  | Memoria virtual total | `mem_vsize` | `/proc/[pid]/status` VmSize | Slice 4 si una política lo requiere; si no, Slice 7 (snapshots forenses) |
+  | Número de hilos | `thread_count` | `/proc/[pid]/stat` campo 20 (`num_threads`) | Slice 6 (TUI) |
+  | File descriptors abiertos | `fd_count` | contar entradas en `/proc/[pid]/fd/` | Slice 7 (snapshots) |
+  | Conexiones de red | `net_connections` | correlación inodos (ver entrada anterior) | Slice 5 |
+  | Tasa de bytes de red | `net_bytes_rate` | correlación + `/proc/net/tcp` counters | Slice 5 |
+  | Sockets abiertos | `net_sockets` | filtrar `/proc/[pid]/fd/` por prefijo `socket:` | Slice 5 |
+
+  Nota: `rchar/wchar_per_s` **no** son identificadores del catálogo PDF.
+  Se exponen como valor añadido, pero M4 sólo mapea `io_read_rate` →
+  `read_bytes_per_s` e `io_write_rate` → `write_bytes_per_s` (bytes reales
+  a disco, no bytes lógicos con cache hits).
+
+- **Diferenciación de `errno` en M1 (PDF §6 Nivel 1).** La spec exige que
+  fallos `ENOENT`/`ESRCH`/`EACCES` se descarten silenciosamente (normales:
+  proceso terminado durante scan, permisos) y que `ENOMEM`/`EIO` se
+  registren en log. Actualmente `read_file()` en
+  [src/collector/collector.c:49](src/collector/collector.c#L49)
+  retorna `PG_ERR_IO` sin tocar `errno`; todos los errores son silenciados
+  por igual. Implementar requiere `#include <errno.h>`, propagación de
+  `errno` en el stack de helpers, y un canal de log (hoy no existe;
+  llegará con M7). Destino: **Slice 7** junto con M7 Report o antes si
+  M4 necesita observabilidad de fallos.
+
+- **`sample_buffer` hardcodeado a N=16** en el integrador. PDF §5.4 define
+  default 120. Alinear cuando el parser de config (M4) lea `[global]`.
+
+- **`vmrss_bytes` se lee de `/proc/[pid]/statm` (campo 2 × pagesize).**
+  PDF §4.1 prefiere `/proc/[pid]/status` (campo `VmRSS`). Equivalentes
+  semánticamente, pero `status` unifica la lectura de `VmSize` y UID
+  real/efectivo (necesario para M5 disguised_process). Migrar cuando
+  `mem_vsize` o la heurística de UID entren en scope.
+
 - Patrón "compilar fuentes inline en cada test binary" no escala. Con
   Slice 4 (M4 añadirá `test_alert`) el dolor crece. Introducir
-  `build/tests/` con objetos ASAN reutilizables.
+  `build/tests/` con objetos ASAN reutilizables **al inicio del Slice 4**.
+
 - Path fijo `/tmp/pg_test_proc` para fixtures. Migrar a `mkdtemp` cuando
   haya más de un binario con fixtures de procfs.
+
 - `make valgrind` requiere build sin ASAN (los dos sanitizers no conviven):
   `make clean && make debug && make valgrind`. Considerar target
   `valgrind-ci` que haga el reset internamente cuando exista CI.
+
 - `/proc/[pid]/io` requiere root o mismo UID; corriendo como usuario
   normal la mayoría de procesos tendrán los 4 counters en 0. No es bug.
+
 - Sección 5.11 del PDF (concurrencia detallada: tamaños exactos de colas,
   protocolo de mutex) leerse antes de Slice 4 — resumen en
   `docs/plans/slice-4-concurrency.md`.
