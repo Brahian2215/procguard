@@ -17,8 +17,10 @@ int pg_store_init(pg_store_t **store, size_t n_per_proc);
 
 /*
  * Inserta una muestra. Crea entry si el id no existe; empuja sobre el buffer
- * circular descartando la más antigua (FIFO) si lleno. Marca la entry
- * "vista este tick" (reset por pg_store_tick en Sesión 3+).
+ * circular descartando la más antigua (FIFO) si lleno. Re-inserts marcan
+ * la entry como "vista este tick" (pg_store_tick resetea absent_cycles);
+ * entries nuevas no marcan ese flag — ya arrancan con absent=0 y no necesitan
+ * reset en el próximo tick.
  *
  * Si el id fue liberado previamente por gracia vencida, un insert
  * posterior crea una entry nueva (count=0, sin histórico anterior).
@@ -49,6 +51,22 @@ int pg_store_get_history(const pg_store_t *store,
                          pg_proc_id_t id,
                          pg_raw_sample_t *buf, size_t buf_cap,
                          size_t *out_len);
+
+/*
+ * Avanza un ciclo de gobernanza. Para cada entry:
+ *  - si fue vista desde el último tick (insert ocurrió): resetea
+ *    absent_cycles=0 y seen_this_tick=false.
+ *  - si no fue vista: incrementa absent_cycles en 1; si excede
+ *    grace_cycles libera la entry (swap-con-último, compactación).
+ *
+ * Semántica: entry insertada y nunca reinsertada sobrevive
+ * grace_cycles ticks; se libera en el tick siguiente.
+ *
+ * Retorna:
+ *   PG_OK         éxito
+ *   PG_ERR_PARSE  store == NULL
+ */
+int pg_store_tick(pg_store_t *store, unsigned int grace_cycles);
 
 /*
  * Libera el store y todos sus buffers. Seguro llamar con NULL (no-op).

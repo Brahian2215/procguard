@@ -92,13 +92,16 @@ int pg_store_insert(pg_store_t *store, const pg_raw_sample_t *sample)
     }
     size_t idx = find_entry_idx(store, sample->id);
     pg_store_entry_t *e;
+    bool was_existing;
     if (idx == store->n_entries) {
         int rc = create_entry(store, sample->id, &e);
         if (rc != PG_OK) {
             return rc;
         }
+        was_existing = false;
     } else {
         e = &store->entries[idx];
+        was_existing = true;
     }
 
     e->samples[e->head] = *sample;
@@ -106,7 +109,14 @@ int pg_store_insert(pg_store_t *store, const pg_raw_sample_t *sample)
     if (e->count < store->n_per_proc) {
         e->count++;
     }
-    e->seen_this_tick = true;
+    /* Sólo re-inserts marcan seen_this_tick: el próximo tick resetea absent.
+     * Entries recién creadas arrancan con absent=0 y seen=false; el próximo
+     * tick incrementa absent a 1 — así "sobrevive grace_cycles ticks sin
+     * reinserts" cuenta desde el tick posterior al insert, no desde uno más.
+     */
+    if (was_existing) {
+        e->seen_this_tick = true;
+    }
     return PG_OK;
 }
 
@@ -133,6 +143,43 @@ int pg_store_get_history(const pg_store_t *store,
         buf[i] = e->samples[(first_idx + i) % n];
     }
     *out_len = take;
+    return PG_OK;
+}
+
+/* Libera los samples de la entry en idx y compacta por swap-con-último. */
+static void free_entry_at(pg_store_t *store, size_t idx)
+{
+    free(store->entries[idx].samples);
+    size_t last = store->n_entries - 1;
+    if (idx != last) {
+        store->entries[idx] = store->entries[last];
+    }
+    store->n_entries--;
+}
+
+int pg_store_tick(pg_store_t *store, unsigned int grace_cycles)
+{
+    if (store == NULL) {
+        return PG_ERR_PARSE;
+    }
+    size_t i = 0;
+    while (i < store->n_entries) {
+        pg_store_entry_t *e = &store->entries[i];
+        if (e->seen_this_tick) {
+            e->seen_this_tick = false;
+            e->absent_cycles = 0;
+            i++;
+            continue;
+        }
+        e->absent_cycles++;
+        if (e->absent_cycles > grace_cycles) {
+            /* Tras free_entry_at, el slot i contiene la ex-última entry;
+             * no incrementar i para procesarla en la siguiente iteración. */
+            free_entry_at(store, i);
+            continue;
+        }
+        i++;
+    }
     return PG_OK;
 }
 

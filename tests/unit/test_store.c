@@ -186,8 +186,116 @@ static void test_null_args_return_parse_err(void)
     TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE,
         pg_store_get_history(s, id, buf, 4, NULL));
 
+    /* tick */
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE, pg_store_tick(NULL, 10));
+
     /* destroy(NULL) es no-op */
     pg_store_destroy(NULL);
+
+    pg_store_destroy(s);
+}
+
+/* --- Tick: gracia G y liberación compacta -------------------------------- */
+
+static void test_tick_grace_boundary(void)
+{
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 16));
+
+    pg_raw_sample_t in = make_sample(100, 500, "x", 1);
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &in));
+
+    /* 10 ticks sin reinsert: la entry sobrevive (absent_cycles llega a 10,
+     * pero 10 > 10 es falso → no libera). */
+    for (int i = 0; i < 10; i++) {
+        TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_tick(s, 10));
+    }
+
+    pg_raw_sample_t buf[4];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_store_get_history(s, in.id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(1, out_len);
+
+    /* Tick 11 → absent=11 > 10 → libera. */
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_tick(s, 10));
+    out_len = 42; /* sentinel */
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_store_get_history(s, in.id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(0, out_len);
+
+    pg_store_destroy(s);
+}
+
+static void test_tick_resets_counter_on_reinsert(void)
+{
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 16));
+
+    pg_raw_sample_t in = make_sample(100, 500, "x", 1);
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &in));
+
+    /* 5 ticks sin reinsert → absent_cycles = 5. */
+    for (int i = 0; i < 5; i++) {
+        TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_tick(s, 10));
+    }
+
+    /* Reinsert: seen_this_tick=true. El próximo tick debe resetear absent. */
+    pg_raw_sample_t in2 = make_sample(100, 500, "x", 2);
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &in2));
+
+    /* 11 ticks post-reinsert: tick 1 resetea (absent=0), ticks 2..11 suben
+     * a absent=10 (no excede 10) → entry SIGUE viva. Si el contador no se
+     * resetease, los 5 previos + 11 = 16 habrían excedido ya. */
+    for (int i = 0; i < 11; i++) {
+        TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_tick(s, 10));
+    }
+    pg_raw_sample_t buf[4];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_store_get_history(s, in.id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(2, out_len);
+
+    /* Un tick más (total 12 post-reinsert): absent=11 > 10 → libera. Esta
+     * aserción asegura que el tick ejerce presión real, no que la entry
+     * simplemente persista por falta de efecto. */
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_tick(s, 10));
+    out_len = 42;
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_store_get_history(s, in.id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(0, out_len);
+
+    pg_store_destroy(s);
+}
+
+static void test_tick_frees_multiple_expired(void)
+{
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 16));
+
+    pg_raw_sample_t a = make_sample(1, 100, "a", 1);
+    pg_raw_sample_t b = make_sample(2, 200, "b", 2);
+    pg_raw_sample_t c = make_sample(3, 300, "c", 3);
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &a));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &b));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &c));
+
+    /* 12 ticks → todos liberados en el tick 11; tick 12 es no-op. */
+    for (int i = 0; i < 12; i++) {
+        TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_tick(s, 10));
+    }
+
+    pg_raw_sample_t buf[4];
+    size_t out_len;
+    out_len = 42;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_get_history(s, a.id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(0, out_len);
+    out_len = 42;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_get_history(s, b.id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(0, out_len);
+    out_len = 42;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_get_history(s, c.id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(0, out_len);
 
     pg_store_destroy(s);
 }
@@ -274,6 +382,9 @@ int main(void)
     RUN_TEST(test_multiple_entries_independent);
     RUN_TEST(test_get_history_unknown_id_returns_zero);
     RUN_TEST(test_null_args_return_parse_err);
+    RUN_TEST(test_tick_grace_boundary);
+    RUN_TEST(test_tick_resets_counter_on_reinsert);
+    RUN_TEST(test_tick_frees_multiple_expired);
     RUN_TEST(test_integration_scan_inserts_into_store);
     return UNITY_END();
 }
