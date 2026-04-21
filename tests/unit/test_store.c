@@ -133,6 +133,26 @@ static void test_multiple_entries_independent(void)
     pg_store_destroy(s);
 }
 
+static void test_get_history_unknown_id_returns_zero(void)
+{
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 16));
+
+    /* Inserta algo para que el store no esté vacío — el id buscado
+     * sigue siendo desconocido. */
+    pg_raw_sample_t known = make_sample(100, 500, "k", 1);
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &known));
+
+    pg_proc_id_t unknown = { .pid = 999, .starttime = 999 };
+    pg_raw_sample_t buf[4];
+    size_t out_len = 42; /* sentinel para verificar que se sobrescribe */
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_store_get_history(s, unknown, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(0, out_len);
+
+    pg_store_destroy(s);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -140,5 +160,6 @@ int main(void)
     RUN_TEST(test_insert_single_sample);
     RUN_TEST(test_buffer_wraparound_and_buf_cap);
     RUN_TEST(test_multiple_entries_independent);
+    RUN_TEST(test_get_history_unknown_id_returns_zero);
     return UNITY_END();
 }
