@@ -103,3 +103,20 @@ para lifecycle de buffers. Alinea con ADR-001.
 **Consecuencias:** M1 no necesita estado entre scans — cada scan es
 independiente. M2 concentra toda la lógica temporal (buffer circular +
 contador de ausencia + expiración).
+
+---
+
+## ADR-008: Inyección explícita de hz y ncpus en funciones de M3
+
+**Contexto:** `pg_metrics_cpu_percent` necesita `_SC_CLK_TCK` (jiffies/s del
+host) y `_SC_NPROCESSORS_ONLN` (clamp superior). Dos opciones: que M3 llame
+`sysconf()` internamente, o que el integrador los obtenga una vez y los
+inyecte como parámetros.
+
+**Decisión:** parámetros explícitos `long hz`, `long ncpus`. M3 no llama
+`sysconf()`.
+
+**Consecuencias:** funciones de M3 deterministas y testeables con valores
+arbitrarios sin depender del host. Tests pueden fijar `hz=100, ncpus=4` y
+verificar fórmulas exactamente. Misma convención aplica a métricas futuras
+de M3 que requieran constantes del host.

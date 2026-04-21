@@ -26,8 +26,9 @@ typedef struct {
     unsigned long long stime;        /* jiffies en modo kernel */
     unsigned long long timestamp_ms; /* CLOCK_MONOTONIC en ms al momento del scan */
 
-    /* Slice 2 — campos append-only (ADR-022). 0 si la lectura del archivo
-     * correspondiente falla (permisos, race con exit, kernel thread). */
+    /* Campos append-only por convención (ver CLAUDE.md §convenciones). 0 si
+     * la lectura del archivo correspondiente falla (permisos, race con exit,
+     * kernel thread). */
     unsigned long long vmrss_bytes;  /* /proc/[pid]/statm campo 2 * pagesize */
     unsigned long long rchar;        /* /proc/[pid]/io */
     unsigned long long wchar;        /* /proc/[pid]/io */

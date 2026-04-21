@@ -18,7 +18,7 @@ float pg_metrics_cpu_percent(const pg_raw_sample_t *prev,
     unsigned long long prev_cpu = prev->utime + prev->stime;
     unsigned long long curr_cpu = curr->utime + curr->stime;
     if (curr_cpu < prev_cpu) {
-        return -1.0f; /* violación de monotonía de jiffies — ADR-012 */
+        return -1.0f; /* guarda defensiva: violación de monotonía de jiffies */
     }
 
     double elapsed_s =

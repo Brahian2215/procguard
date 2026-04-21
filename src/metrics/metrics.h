@@ -12,17 +12,17 @@
  * ncpus  número de CPUs en línea (sysconf(_SC_NPROCESSORS_ONLN));
  *        define el clamp superior del resultado.
  *
- * Ambos parámetros se inyectan explícitamente (ADR-010) para hacer
+ * Ambos parámetros se inyectan explícitamente (ADR-008) para hacer
  * la función determinista y testable sin depender del host.
  *
  * Retorna:
- *   -1.0f  muestra inutilizable (ADR-011):
+ *   -1.0f  muestra inutilizable (ADR-006):
  *          - prev o curr es NULL
  *          - prev->id.pid != curr->id.pid
  *          - prev->id.starttime != curr->id.starttime
  *          - (curr->utime + curr->stime) < (prev->utime + prev->stime)
- *            (underflow; posible si el kernel violara la monotonía
- *            de jiffies para un mismo pid+starttime — ADR-012)
+ *            (underflow; guarda defensiva ante posibles violaciones de
+ *            monotonía de jiffies para un mismo pid+starttime)
  *    0.0f  elapsed_ms == 0 (evita división por cero)
  *   [0.0f, 100.0f * max(ncpus, 1)]  CPU% clampeado en caso normal
  */
