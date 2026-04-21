@@ -11,6 +11,7 @@
 
 #include "collector.h"
 #include "metrics.h"
+#include "store.h"
 
 typedef struct {
     pid_t pid;
@@ -62,6 +63,17 @@ static size_t build_ranked(const pg_raw_sample_t *prev, size_t prev_n,
     return n;
 }
 
+static int insert_all(pg_store_t *s, const pg_raw_sample_t *v, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        int rc = pg_store_insert(s, &v[i]);
+        if (rc != PG_OK) {
+            return rc;
+        }
+    }
+    return PG_OK;
+}
+
 static void print_top(const ranked_t *r, size_t n, size_t top_k)
 {
     printf("%-8s %-20s %7s\n", "PID", "COMMAND", "CPU%");
@@ -71,6 +83,41 @@ static void print_top(const ranked_t *r, size_t n, size_t top_k)
     }
 }
 
+static int scan_and_insert(pg_collector_t *col, pg_store_t *store,
+                           pg_raw_sample_t **out, size_t *out_n,
+                           const char *tag)
+{
+    if (pg_collector_scan(col, out, out_n) != PG_OK) {
+        fprintf(stderr, "procguard: scan %s failed\n", tag);
+        return 1;
+    }
+    if (insert_all(store, *out, *out_n) != PG_OK) {
+        fprintf(stderr, "procguard: store insert %s failed\n", tag);
+        return 1;
+    }
+    return 0;
+}
+
+static int report_top(const pg_raw_sample_t *prev, size_t prev_n,
+                      const pg_raw_sample_t *curr, size_t curr_n,
+                      long hz, long ncpus, size_t top_k)
+{
+    if (curr_n == 0) {
+        print_top(NULL, 0, top_k);
+        return 0;
+    }
+    ranked_t *ranked = malloc(curr_n * sizeof(*ranked));
+    if (ranked == NULL) {
+        fprintf(stderr, "procguard: out of memory\n");
+        return 1;
+    }
+    size_t n = build_ranked(prev, prev_n, curr, curr_n, hz, ncpus, ranked);
+    qsort(ranked, n, sizeof(*ranked), cmp_cpu_desc);
+    print_top(ranked, n, top_k);
+    free(ranked);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     const char *proc_base = (argc > 1) ? argv[1] : "/proc";
@@ -78,7 +125,6 @@ int main(int argc, char *argv[])
     if (read_system_params(&hz, &ncpus) != 0) {
         return 1;
     }
-
     pg_collector_t *col = NULL;
     if (pg_collector_init(&col, proc_base, false) != PG_OK) {
         fprintf(stderr, "procguard: collector init failed\n");
@@ -87,35 +133,27 @@ int main(int argc, char *argv[])
 
     pg_raw_sample_t *prev = NULL; size_t prev_n = 0;
     pg_raw_sample_t *curr = NULL; size_t curr_n = 0;
-    ranked_t       *ranked = NULL;
+    pg_store_t     *store = NULL;
     int rc = 0;
 
-    if (pg_collector_scan(col, &prev, &prev_n) != PG_OK) {
-        fprintf(stderr, "procguard: scan #1 failed\n");
+    if (pg_store_init(&store, 16) != PG_OK) {
+        fprintf(stderr, "procguard: store init failed\n");
+        rc = 1; goto cleanup;
+    }
+    if (scan_and_insert(col, store, &prev, &prev_n, "#1") != 0) {
         rc = 1; goto cleanup;
     }
     sleep(1);
-    if (pg_collector_scan(col, &curr, &curr_n) != PG_OK) {
-        fprintf(stderr, "procguard: scan #2 failed\n");
+    pg_store_tick(store, 10);
+    if (scan_and_insert(col, store, &curr, &curr_n, "#2") != 0) {
         rc = 1; goto cleanup;
     }
-
-    if (curr_n > 0) {
-        ranked = malloc(curr_n * sizeof(*ranked));
-        if (ranked == NULL) {
-            fprintf(stderr, "procguard: out of memory\n");
-            rc = 1; goto cleanup;
-        }
-    }
-
-    size_t n = build_ranked(prev, prev_n, curr, curr_n, hz, ncpus, ranked);
-    qsort(ranked, n, sizeof(*ranked), cmp_cpu_desc);
-    print_top(ranked, n, 5);
+    rc = report_top(prev, prev_n, curr, curr_n, hz, ncpus, 5);
 
 cleanup:
-    free(ranked);
     free(prev);
     free(curr);
+    pg_store_destroy(store);
     pg_collector_destroy(col);
     return rc;
 }
