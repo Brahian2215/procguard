@@ -37,3 +37,13 @@ float pg_metrics_cpu_percent(const pg_raw_sample_t *prev,
     if (cpu_pct > max_pct) cpu_pct = max_pct;
     return cpu_pct;
 }
+
+void pg_metrics_io_rates(const pg_raw_sample_t *prev,
+                         const pg_raw_sample_t *curr,
+                         pg_io_rates_t *out)
+{
+    (void)prev;
+    (void)curr;
+    (void)out;
+    /* RED stub: implementación en el siguiente commit. */
+}
