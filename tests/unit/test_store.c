@@ -54,10 +54,43 @@ static void test_insert_single_sample(void)
     pg_store_destroy(s);
 }
 
+static void test_buffer_wraparound_and_buf_cap(void)
+{
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 3));
+
+    pg_proc_id_t id = { .pid = 100, .starttime = 500 };
+    for (unsigned long long u = 1; u <= 5; u++) {
+        pg_raw_sample_t in = make_sample(100, 500, "x", u);
+        TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &in));
+    }
+
+    /* buf_cap=10 > count=3 → devuelve los 3 más recientes: utimes [3,4,5]. */
+    pg_raw_sample_t buf[10];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_store_get_history(s, id, buf, 10, &out_len));
+    TEST_ASSERT_EQUAL_UINT(3, out_len);
+    TEST_ASSERT_EQUAL_UINT64(3, buf[0].utime);
+    TEST_ASSERT_EQUAL_UINT64(4, buf[1].utime);
+    TEST_ASSERT_EQUAL_UINT64(5, buf[2].utime);
+
+    /* buf_cap=2 < count=3 → devuelve los 2 más recientes: utimes [4,5]. */
+    out_len = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_store_get_history(s, id, buf, 2, &out_len));
+    TEST_ASSERT_EQUAL_UINT(2, out_len);
+    TEST_ASSERT_EQUAL_UINT64(4, buf[0].utime);
+    TEST_ASSERT_EQUAL_UINT64(5, buf[1].utime);
+
+    pg_store_destroy(s);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_destroy_clean);
     RUN_TEST(test_insert_single_sample);
+    RUN_TEST(test_buffer_wraparound_and_buf_cap);
     return UNITY_END();
 }
