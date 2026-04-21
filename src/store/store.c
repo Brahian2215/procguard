@@ -73,6 +73,9 @@ static int create_entry(pg_store_t *store, pg_proc_id_t id,
 
 int pg_store_init(pg_store_t **store, size_t n_per_proc)
 {
+    if (store == NULL || n_per_proc == 0) {
+        return PG_ERR_PARSE;
+    }
     pg_store_t *s = calloc(1, sizeof(*s));
     if (s == NULL) {
         return PG_ERR_MEM;
@@ -84,6 +87,9 @@ int pg_store_init(pg_store_t **store, size_t n_per_proc)
 
 int pg_store_insert(pg_store_t *store, const pg_raw_sample_t *sample)
 {
+    if (store == NULL || sample == NULL) {
+        return PG_ERR_PARSE;
+    }
     size_t idx = find_entry_idx(store, sample->id);
     pg_store_entry_t *e;
     if (idx == store->n_entries) {
@@ -109,6 +115,9 @@ int pg_store_get_history(const pg_store_t *store,
                          pg_raw_sample_t *buf, size_t buf_cap,
                          size_t *out_len)
 {
+    if (store == NULL || buf == NULL || buf_cap == 0 || out_len == NULL) {
+        return PG_ERR_PARSE;
+    }
     size_t idx = find_entry_idx(store, id);
     if (idx == store->n_entries) {
         *out_len = 0;

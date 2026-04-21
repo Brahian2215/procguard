@@ -153,6 +153,41 @@ static void test_get_history_unknown_id_returns_zero(void)
     pg_store_destroy(s);
 }
 
+static void test_null_args_return_parse_err(void)
+{
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 16));
+
+    /* init */
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE, pg_store_init(NULL, 16));
+    pg_store_t *tmp = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE, pg_store_init(&tmp, 0));
+    TEST_ASSERT_NULL(tmp);
+
+    /* insert */
+    pg_raw_sample_t sample = make_sample(1, 2, "x", 3);
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE, pg_store_insert(NULL, &sample));
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE, pg_store_insert(s, NULL));
+
+    /* get_history */
+    pg_proc_id_t id = { .pid = 1, .starttime = 2 };
+    pg_raw_sample_t buf[4];
+    size_t out_len = 0;
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE,
+        pg_store_get_history(NULL, id, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE,
+        pg_store_get_history(s, id, NULL, 4, &out_len));
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE,
+        pg_store_get_history(s, id, buf, 0, &out_len));
+    TEST_ASSERT_EQUAL_INT(PG_ERR_PARSE,
+        pg_store_get_history(s, id, buf, 4, NULL));
+
+    /* destroy(NULL) es no-op */
+    pg_store_destroy(NULL);
+
+    pg_store_destroy(s);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -161,5 +196,6 @@ int main(void)
     RUN_TEST(test_buffer_wraparound_and_buf_cap);
     RUN_TEST(test_multiple_entries_independent);
     RUN_TEST(test_get_history_unknown_id_returns_zero);
+    RUN_TEST(test_null_args_return_parse_err);
     return UNITY_END();
 }
