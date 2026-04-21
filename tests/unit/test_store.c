@@ -1,8 +1,12 @@
 #include "unity.h"
 #include "store.h"
+#include "collector.h"
 #include "pg_types.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 void setUp(void)
 {
@@ -188,6 +192,79 @@ static void test_null_args_return_parse_err(void)
     pg_store_destroy(s);
 }
 
+/* --- Fixture helpers para el test de integración ------------------------- */
+
+#define TEST_PROC_BASE "/tmp/pg_test_proc"
+
+static void write_stat(int pid, const char *content)
+{
+    char dir[128];
+    char path[160];
+    snprintf(dir, sizeof(dir), TEST_PROC_BASE "/%d", pid);
+    snprintf(path, sizeof(path), "%s/stat", dir);
+    mkdir(dir, 0755);
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        return;
+    }
+    fputs(content, f);
+    fclose(f);
+}
+
+static void test_integration_scan_inserts_into_store(void)
+{
+    /* Cleanup defensivo: test_collector puede haber dejado residuos
+     * (Slice 1 debt — fixture path compartido). */
+    system("rm -rf " TEST_PROC_BASE);
+    mkdir(TEST_PROC_BASE, 0755);
+    write_stat(100,
+        "100 (bash) S 1 100 100 0 -1 0 0 0 0 0 150 50 0 0 20 0 1 0 12345 0 0\n");
+    write_stat(200,
+        "200 (nginx) S 1 200 200 0 -1 0 0 0 0 0 200 100 0 0 20 0 1 0 67890 0 0\n");
+    write_stat(300,
+        "300 (python3) R 100 300 300 0 -1 0 0 0 0 0 500 200 0 0 20 0 1 0 11111 0 0\n");
+
+    pg_collector_t *c = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&c, TEST_PROC_BASE, false));
+
+    pg_raw_sample_t *samples = NULL;
+    size_t n = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_scan(c, &samples, &n));
+    TEST_ASSERT_EQUAL_UINT(3, n);
+
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 16));
+    for (size_t i = 0; i < n; i++) {
+        TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &samples[i]));
+    }
+
+    /* Cada id insertado debe tener histórico de longitud 1 con su comm. */
+    struct { pid_t pid; const char *comm; } expected[3] = {
+        { 100, "bash" }, { 200, "nginx" }, { 300, "python3" },
+    };
+    for (size_t i = 0; i < 3; i++) {
+        const pg_raw_sample_t *src = NULL;
+        for (size_t j = 0; j < n; j++) {
+            if (samples[j].id.pid == expected[i].pid) {
+                src = &samples[j];
+                break;
+            }
+        }
+        TEST_ASSERT_NOT_NULL(src);
+        pg_raw_sample_t buf[4];
+        size_t out_len = 0;
+        TEST_ASSERT_EQUAL_INT(PG_OK,
+            pg_store_get_history(s, src->id, buf, 4, &out_len));
+        TEST_ASSERT_EQUAL_UINT(1, out_len);
+        TEST_ASSERT_EQUAL_STRING(expected[i].comm, buf[0].comm);
+    }
+
+    free(samples);
+    pg_store_destroy(s);
+    pg_collector_destroy(c);
+    system("rm -rf " TEST_PROC_BASE);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -197,5 +274,6 @@ int main(void)
     RUN_TEST(test_multiple_entries_independent);
     RUN_TEST(test_get_history_unknown_id_returns_zero);
     RUN_TEST(test_null_args_return_parse_err);
+    RUN_TEST(test_integration_scan_inserts_into_store);
     return UNITY_END();
 }
