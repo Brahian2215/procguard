@@ -38,12 +38,47 @@ float pg_metrics_cpu_percent(const pg_raw_sample_t *prev,
     return cpu_pct;
 }
 
+static float compute_rate(unsigned long long prev_c,
+                          unsigned long long curr_c,
+                          double elapsed_s)
+{
+    if (curr_c < prev_c) {
+        return -1.0f; /* guarda defensiva: counter I/O no-monotónico */
+    }
+    return (float)((double)(curr_c - prev_c) / elapsed_s);
+}
+
+static void fill_sentinel(pg_io_rates_t *out, float v)
+{
+    out->rchar_per_s       = v;
+    out->wchar_per_s       = v;
+    out->read_bytes_per_s  = v;
+    out->write_bytes_per_s = v;
+}
+
 void pg_metrics_io_rates(const pg_raw_sample_t *prev,
                          const pg_raw_sample_t *curr,
                          pg_io_rates_t *out)
 {
-    (void)prev;
-    (void)curr;
-    (void)out;
-    /* RED stub: implementación en el siguiente commit. */
+    if (out == NULL) {
+        return;
+    }
+    if (prev == NULL || curr == NULL ||
+        prev->id.pid != curr->id.pid ||
+        prev->id.starttime != curr->id.starttime) {
+        fill_sentinel(out, -1.0f);
+        return;
+    }
+
+    double elapsed_s =
+        (double)(curr->timestamp_ms - prev->timestamp_ms) / 1000.0;
+    if (elapsed_s <= 0.0) {
+        fill_sentinel(out, 0.0f);
+        return;
+    }
+
+    out->rchar_per_s       = compute_rate(prev->rchar,       curr->rchar,       elapsed_s);
+    out->wchar_per_s       = compute_rate(prev->wchar,       curr->wchar,       elapsed_s);
+    out->read_bytes_per_s  = compute_rate(prev->read_bytes,  curr->read_bytes,  elapsed_s);
+    out->write_bytes_per_s = compute_rate(prev->write_bytes, curr->write_bytes, elapsed_s);
 }
