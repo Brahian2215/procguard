@@ -2,8 +2,8 @@
 
 ## Estado actual
 
-Slice 2 cerrado. `make asan && make test && make lint-funclen && make valgrind`
-verdes. 23 tests totales (8 collector + 5 metrics + 10 store).
+Slice 3 cerrado. `make asan && make test && make lint-funclen && make valgrind`
+verdes. 28 tests totales (8 collector + 10 metrics + 10 store).
 
 Módulos:
 - **M1 Collector** (`src/collector/`): scan de procfs con `vmrss_bytes` (statm),
@@ -11,19 +11,25 @@ Módulos:
 - **M2 Sample Store** (`src/store/`): `init/insert/get_history/tick/destroy`
   con buffer circular por `pg_proc_id_t` y período de gracia G=10 ciclos
   (ADR-007). `pg_store_tick` libera entries vencidas vía swap-con-último.
-- **M3 Metrics** (`src/metrics/`): `pg_metrics_cpu_percent` función pura con
-  clamp `[0, 100*ncpus]` y sentinel `-1.0f` para casos inválidos.
+- **M3 Metrics** (`src/metrics/`): completo para métricas derivables.
+  `pg_metrics_cpu_percent` (función pura, clamp `[0, 100*ncpus]`, sentinel
+  `-1.0f`, ADR-006) y `pg_metrics_io_rates` (llena `pg_io_rates_t` con
+  rchar/wchar/read_bytes/write_bytes por segundo; sentinel por-counter ante
+  underflow aislado; sin clamp superior). RSS es pase directo de
+  `vmrss_bytes` sin función dedicada. Inyección explícita de hz/ncpus
+  (ADR-008).
 - **main.c** (integrador Slice 1/2, temporal): dos scans con `sleep(1)`,
   store cableado (init → insert scan#1 → tick → insert scan#2 → destroy),
-  top-5 por CPU% a stdout.
+  top-5 por CPU% a stdout. No consume aún tasas I/O — el integrador
+  visible lo hará M4.
 
 ## Roadmap restante
 
 | Slice | Objetivo | Estado |
 |---|---|---|
 | 2 | Extender M1 (statm, io, skip_kt) + M2 store + tick+gracia | ✅ cerrado |
-| 3 | Completar M3 Metrics (tasas I/O; red diferida a Slice 4 o debt) | **Siguiente** |
-| 4 | M4 Alert & Governance (políticas estáticas, histéresis, cooldown, dry-run) | Pendiente |
+| 3 | Completar M3 Metrics (tasas I/O; red diferida como deuda) | ✅ cerrado |
+| 4 | M4 Alert & Governance (políticas estáticas, histéresis, cooldown, dry-run) | **Siguiente** |
 | 5 | Threading: hilos gobernanza + inotify, M5 Security (4 heurísticas) | Pendiente |
 | 6 | M6 TUI (ncurses, tercer hilo) | Pendiente |
 | 7 | M7 Report (JSON lines, snapshots, HTML) + acciones M4 reales | Pendiente |
@@ -32,31 +38,36 @@ Módulos:
 Orden fijado por dependencias de datos: M1 → M2 → M3 → M4 → (M5‖M6) → M7.
 Cada slice cierra con `make asan && make test && make valgrind` verdes.
 
-## Próximos pasos (Slice 3)
+## Próximos pasos (Slice 4)
 
-Completar M3 Metrics Engine. Estado actual: sólo `pg_metrics_cpu_percent`
-implementado. Faltan:
+M4 Alert & Governance: parser inih de políticas estáticas (umbrales por
+métrica, con histéresis y cooldown), evaluación por proceso en el loop de
+gobernanza, revalidación de `(pid, starttime)` antes de actuar (ADR-005),
+modo dry-run (acción = log). M3 ya expone CPU% y tasas I/O como insumos;
+RSS se lee directo de `vmrss_bytes`.
 
-- **Tasas I/O** (4 funciones puras, una por counter): `rchar/s`, `wchar/s`,
-  `read_bytes/s`, `write_bytes/s`. Counters ya recolectados por M1 en
-  `pg_raw_sample_t`; sólo falta la aritmética `(curr - prev) / elapsed` con
-  el mismo patrón de CPU% (sentinel `-1.0f`, validación de `(pid, starttime)`,
-  elapsed vía `timestamp_ms`). Considerar una sola función
-  `pg_metrics_io_rates(prev, curr, out)` que llene un struct con las 4
-  tasas — reduce boilerplate y hay un único chequeo de sentinel.
-- **RSS**: decisión de diseño — ¿M3 lo expone o se lee directo del sample?
-  Es pase-directo, así que probablemente no necesita función propia; dejar
-  nota en el plan.
-- **Red**: recolección por proceso requiere `/proc/[pid]/net/dev` en el
-  namespace del proceso (complicado con namespaces no propios). Evaluar
-  si se difiere a Slice 4 junto con M5, o se registra como deuda técnica.
+Antes de arrancar, leer `docs/plans/slice-4-concurrency.md` (modelo de
+tres hilos) — Slice 4 no introduce threading todavía, pero sus APIs deben
+ser thread-safe por diseño para el cableado del Slice 5.
 
-Crear `docs/plans/slice-3.md` al arrancar con brainstorming previo.
+Crear `docs/plans/slice-4.md` con brainstorming previo.
 
 ## Deuda técnica
 
-- Patrón "compilar fuentes inline en cada test binary" no escala. En Slice 3+
-  introducir `build/tests/` con objetos ASAN reutilizables.
+- **Red por-proceso diferida.** `/proc/[pid]/net/dev` fuera del netns del
+  proceso no da datos por-PID — el archivo refleja el netns del lector
+  (host procfs), no el del target. Para leer el netns del proceso hay
+  que `setns` + reabrir el file, lo cual requiere `CAP_SYS_ADMIN`. Rompe
+  la premisa "M3 = funciones puras" (exige I/O a procfs del target).
+  Decisión de dónde vive la lectura pospuesta hasta que M5 defina acceso
+  a procfs y/o se resuelva el modelo de privilegios.
+- **Referencias ADR en M1 colgadas.** `src/collector/collector.{c,h}` cita
+  ADR-021 (skip kernel threads) que no existe en `DECISIONS.md`. Limpiar
+  en chore futuro: o se añade ADR-021 real, o se sustituye por texto sin
+  número. Fuera del scope de Slice 3 (se limpió sólo lo relativo a M3).
+- Patrón "compilar fuentes inline en cada test binary" no escala. Con
+  Slice 4 (M4 añadirá `test_alert`) el dolor crece. Introducir
+  `build/tests/` con objetos ASAN reutilizables.
 - Path fijo `/tmp/pg_test_proc` para fixtures. Migrar a `mkdtemp` cuando
   haya más de un binario con fixtures de procfs.
 - `make valgrind` requiere build sin ASAN (los dos sanitizers no conviven):
