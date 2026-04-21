@@ -89,13 +89,6 @@ $(BUILD_DIR)/test_metrics: $(TEST_UNIT_DIR)/test_metrics.c \
 	  -I$(UNITY_DIR) -Isrc/common -Isrc/metrics \
 	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
-# test_rank: comparador puro de ranked_t para qsort descendente.
-$(BUILD_DIR)/test_rank: $(TEST_UNIT_DIR)/test_rank.c \
-		src/util/rank.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
-	  -I$(UNITY_DIR) -Isrc/common -Isrc/util \
-	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
-
 # test_store: M2 Sample Store. Linkea collector.c también para el test de
 # integración end-to-end scan → insert → get_history.
 $(BUILD_DIR)/test_store: $(TEST_UNIT_DIR)/test_store.c \
@@ -105,7 +98,7 @@ $(BUILD_DIR)/test_store: $(TEST_UNIT_DIR)/test_store.c \
 	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
 TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
-             $(BUILD_DIR)/test_rank $(BUILD_DIR)/test_store
+             $(BUILD_DIR)/test_store
 
 test: $(TEST_BINS)
 	@failed=0; \
@@ -127,13 +120,10 @@ test-quick: $(TEST_BINS)
 	done; \
 	exit $$failed
 
-# Nota Sesión 1: el stub src/main.c retorna 1 ("not yet implemented"),
-# así que `make valgrind` saldrá con exit 1 por el programa, no por leaks.
-# Se vuelve verde en Sesión 3 cuando main.c sea real.
 valgrind: $(BUILD_DIR)/procguard
 	valgrind --leak-check=full --error-exitcode=1 $(BUILD_DIR)/procguard
 
 $(BUILD_DIR)/procguard: src/collector/collector.c src/metrics/metrics.c \
-		src/util/rank.c src/main.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Isrc/common -Isrc/collector -Isrc/metrics -Isrc/util \
+		src/main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Isrc/common -Isrc/collector -Isrc/metrics \
 	  $^ -o $@ $(LDFLAGS) $(LDLIBS)
