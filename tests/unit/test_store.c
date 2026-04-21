@@ -86,11 +86,59 @@ static void test_buffer_wraparound_and_buf_cap(void)
     pg_store_destroy(s);
 }
 
+static void test_multiple_entries_independent(void)
+{
+    pg_store_t *s = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_init(&s, 16));
+
+    pg_proc_id_t a = { .pid = 1, .starttime = 100 };
+    pg_proc_id_t b = { .pid = 2, .starttime = 200 };
+    pg_proc_id_t c = { .pid = 1, .starttime = 300 }; /* mismo pid que a */
+
+    pg_raw_sample_t sa1 = make_sample(a.pid, a.starttime, "a", 10);
+    pg_raw_sample_t sa2 = make_sample(a.pid, a.starttime, "a", 11);
+    pg_raw_sample_t sb1 = make_sample(b.pid, b.starttime, "b", 20);
+    pg_raw_sample_t sb2 = make_sample(b.pid, b.starttime, "b", 21);
+    pg_raw_sample_t sc1 = make_sample(c.pid, c.starttime, "c", 30);
+    pg_raw_sample_t sc2 = make_sample(c.pid, c.starttime, "c", 31);
+
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &sa1));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &sb1));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &sc1));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &sa2));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &sb2));
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_insert(s, &sc2));
+
+    pg_raw_sample_t buf[4];
+    size_t out_len = 0;
+
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_get_history(s, a, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(2, out_len);
+    TEST_ASSERT_EQUAL_STRING("a", buf[0].comm);
+    TEST_ASSERT_EQUAL_UINT64(10, buf[0].utime);
+    TEST_ASSERT_EQUAL_UINT64(11, buf[1].utime);
+
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_get_history(s, b, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(2, out_len);
+    TEST_ASSERT_EQUAL_STRING("b", buf[0].comm);
+    TEST_ASSERT_EQUAL_UINT64(20, buf[0].utime);
+    TEST_ASSERT_EQUAL_UINT64(21, buf[1].utime);
+
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_store_get_history(s, c, buf, 4, &out_len));
+    TEST_ASSERT_EQUAL_UINT(2, out_len);
+    TEST_ASSERT_EQUAL_STRING("c", buf[0].comm);
+    TEST_ASSERT_EQUAL_UINT64(30, buf[0].utime);
+    TEST_ASSERT_EQUAL_UINT64(31, buf[1].utime);
+
+    pg_store_destroy(s);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_init_destroy_clean);
     RUN_TEST(test_insert_single_sample);
     RUN_TEST(test_buffer_wraparound_and_buf_cap);
+    RUN_TEST(test_multiple_entries_independent);
     return UNITY_END();
 }
