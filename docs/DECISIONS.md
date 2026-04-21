@@ -1,197 +1,105 @@
 # Registro de Decisiones Arquitectónicas
 
-Cada decisión tiene: contexto, decisión, consecuencias.
+Solo decisiones donde dos alternativas razonables competían y la elegida
+tiene consecuencias propagables. Patrones aplicados (NULL checks, fail-loud,
+`static` helpers, tolerancia float 1e-3 en tests, structs append-only)
+viven como convenciones en `CLAUDE.md`, no aquí.
 
-## ADR-001: Lenguaje C11
-**Contexto:** requisito académico y de rendimiento.
-**Decisión:** C estándar C11, sin extensiones GNU salvo `_GNU_SOURCE`
-para API de glibc donde sea necesario.
-**Consecuencias:** portabilidad limitada a Linux, pero el proyecto es
-Linux-specific por diseño.
+---
 
-## ADR-003: Interfaz M1→M2 a través del loop de gobernanza
-**Contexto:** M1 (collector) devuelve un array plano de pg_raw_sample_t. M2
-(sample store) necesita insertar esas muestras en buffers circulares por proceso.
-**Decisión:** El loop de gobernanza (paso 2→3 del ciclo) es el integrador: recibe
-el array de M1 e itera llamando pg_store_insert(store, &sample) por cada entrada.
-M1 y M2 son mutuamente ignorantes; no existe dependencia M1→M2 ni M2→M1.
-**Consecuencias:** M1 y M2 pueden testearse de forma completamente independiente.
-El governance loop es el único que conoce ambos módulos. Refleja el ciclo de 10
-pasos del PDF donde "Recolectar" y "Calcular" son etapas separadas conectadas por
-el orquestador, no por los módulos entre sí.
+## ADR-001: Interfaz M1↔M2 vía loop de gobernanza, no acoplamiento directo
 
-## ADR-002: Tres hilos fijos
-**Contexto:** necesidad de separar temporalidades (ciclo regular, eventos
-asíncronos inotify, UI reactiva).
-**Decisión:** tres hilos con mutex independientes, sin adquisición
-anidada para eliminar deadlocks por diseño.
-**Consecuencias:** escalabilidad limitada pero robustez alta. Apropiado
-para el alcance del proyecto.
+**Contexto:** M1 produce `pg_raw_sample_t[]`; M2 almacena por proceso. Dos
+opciones: M1 llama a M2 tras cada lectura, o el loop de gobernanza itera
+`pg_store_insert` sobre el array.
 
-## ADR-004: timestamp_ms único por scan (no por proceso)
-**Contexto:** `pg_collector_scan` produce N muestras `pg_raw_sample_t`; cada una
-tiene un campo `timestamp_ms`. Hay dos opciones: una medición global del scan o
-una por cada proceso justo antes de leer su `stat`.
-**Decisión:** una sola llamada a `clock_gettime(CLOCK_MONOTONIC)` al inicio del
-scan; ese valor se asigna a todas las muestras del scan.
-**Consecuencias:** semánticamente "todas las muestras pertenecen al mismo
-instante". Simplifica el cálculo de deltas para CPU% (Sesión 2: dos scans,
-mismo proceso, restar utime+stime / restar timestamps). Evita N syscalls
-extra. La precisión sub-scan se pierde, pero esa precisión nunca era real:
-los procesos al final del scan ya habían avanzado respecto al inicio del scan.
+**Decisión:** el loop es el integrador. M1 y M2 son mutuamente ignorantes.
 
-## ADR-005: API pública es defensive ante args NULL (PG_ERR_PARSE)
-**Contexto:** las tres funciones públicas del collector reciben punteros del
-caller. Un NULL es un error programático.
-**Decisión:** `pg_collector_init` y `pg_collector_scan` validan punteros NULL
-y retornan `PG_ERR_PARSE`. `pg_collector_destroy(NULL)` es no-op (idiomático
-estilo `free`).
-**Consecuencias:** API pública robusta también en builds release. `assert()`
-no protegería en release builds (`-DNDEBUG` lo desactiva). El coste por call
-es un compare-and-branch. Aplicable a todas las APIs públicas de módulos
-futuros.
+**Consecuencias:** tests independientes para ambos módulos, sin fixtures
+cruzados. Refleja el ciclo de 10 pasos del PDF (Recolectar y Calcular son
+etapas separadas conectadas por el orquestador).
 
-## ADR-006: Parser de `comm` usa el ÚLTIMO ')' como delimitador
-**Contexto:** `/proc/[pid]/stat` formato: `pid (comm) state ...`. El campo
-`comm` puede contener espacios, paréntesis y caracteres especiales (Linux
-permite `prctl(PR_SET_NAME)` con casi cualquier byte). Un parser ingenuo
-que use el primer `)` falla con nombres como `weird ) name`.
-**Decisión:** usar `strchr(line, '(')` para el primer `(` y `strrchr(line, ')')`
-para el último `)`. El comm es lo de en medio.
-**Consecuencias:** robusto contra nombres de proceso adversariales. Test
-`parses_comm_with_internal_parens` protege contra regresiones. El resto
-de campos (state, ppid, ..., starttime) se parsean con `sscanf` posicional
-desde el byte siguiente al último `)`.
+---
 
-## ADR-007: `vmrss` y otros campos de memoria diferidos a Slice 2
-**Contexto:** `pg_raw_sample_t` representa una muestra cruda. `vmrss` y RSS
-en general viven en `/proc/[pid]/statm`, no en `stat`.
-**Decisión:** Slice 1 sólo lee `stat`. Los campos de memoria entran cuando
-Slice 2 introduzca métricas de memoria.
-**Consecuencias:** `pg_raw_sample_t` crecerá en Slice 2 (cambio de struct, no
-de API). Como aún no hay M2 (Sample Store) que dependa del layout, no rompe
-nada. `comm` se reserva como `[256]` (no `[16]` que sería el límite real
-de Linux) por holgura defensiva contra fixtures sintéticos largos.
+## ADR-002: Tres hilos con mutex independientes, sin adquisición anidada
 
-## ADR-008: `CLOCK_MONOTONIC` para todos los timestamps
-**Contexto:** existen `gettimeofday`, `time()`, `clock_gettime(CLOCK_REALTIME)`
-y `clock_gettime(CLOCK_MONOTONIC)`. Necesitamos timestamps para deltas de CPU%.
-**Decisión:** `CLOCK_MONOTONIC` exclusivamente para cualquier campo
-`timestamp_ms` interno del sistema.
-**Consecuencias:** inmune a saltos por NTP, cambios de zona horaria o ajustes
-manuales del reloj. `CLOCK_MONOTONIC` no es comparable entre boots ni entre
-máquinas, pero esa comparación nunca se requiere — sólo deltas dentro del
-mismo proceso. Para timestamps mostrados al usuario (logs JSON, etc.), Slice 4+
-usará `CLOCK_REALTIME` por separado.
+**Contexto:** separar tres temporalidades (muestreo periódico, eventos
+inotify asíncronos, UI reactiva).
 
-## ADR-009: `pg_collector_t` es type opaco desde el inicio
-**Contexto:** la struct interna del collector hoy sólo contiene `char *proc_base`.
-Podría exponerse directamente como struct pública.
-**Decisión:** declararla como type opaco (`typedef struct pg_collector
-pg_collector_t;` en el header, definición completa en el `.c`).
-**Consecuencias:** permite añadir estado interno (tracking de procesos para
-gracia G=10, caché del último scan, mutex futuros) sin romper la API ni el ABI
-de los callers. Coste actual: una indirección extra al acceder al estado interno
-(despreciable).
+**Decisión:** hilo gobernanza + hilo inotify + hilo TUI. Tres mutex, ningún
+hilo toma más de uno a la vez — elimina deadlocks por diseño.
 
-## ADR-010: `pg_metrics_cpu_percent` recibe `ncpus` como parámetro
-**Contexto:** el clamp superior del resultado es `100 * ncpus`. Se podría
-consultar `sysconf(_SC_NPROCESSORS_ONLN)` internamente en cada llamada o
-inyectarlo como parámetro por simetría con `hz`.
-**Decisión:** firma `pg_metrics_cpu_percent(prev, curr, hz, ncpus)`. El caller
-(loop de gobernanza / main de Slice 1) consulta `sysconf` una vez y propaga.
-**Consecuencias:** tests deterministas — no dependen del núcleo de CPUs del
-host. Sin syscall en hot-path. Coherente con la filosofía de M3 como cálculo
-puro. El caller asume la responsabilidad de pasar un `ncpus` sensato; M3 aplica
-`max(ncpus, 1)` como red de seguridad defensiva.
+**Consecuencias:** escalabilidad limitada pero robustez alta. En daemon el
+hilo TUI no se instancia (2 hilos). Ver `docs/plans/slice-4-concurrency.md`.
 
-## ADR-011: Sentinel único `-1.0f` para "muestra inutilizable" en M3
-**Contexto:** M3 devuelve `float`. ADR-005 establece que las APIs públicas
-deben detectar NULL. Hay tres clases de error convergentes: NULL args, ID
-mismatch (pid o starttime distintos) y violación de monotonía. Se consideró
-NaN, cambiar a firma `int*` con out-param, o un único sentinel.
-**Decisión:** `-1.0f` es el único valor de error. Caller verifica `result <
-0.0f`. Aplica a (a) prev o curr NULL, (b) ID mismatch, (c) underflow
-jiffies.
-**Consecuencias:** API mínima y sin dependencia de `<math.h>`. El valor
-`-1.0f` es imposible como resultado válido porque M3 clampa a `[0.0f,
-100*ncpus]`. Semánticamente todos los casos son "no hay delta computable con
-estas dos muestras" — una distinción más fina no aporta al caller de Slice 1
-(main, luego governance loop): ambas respuestas son "salta este proceso en
-esta iteración".
+---
 
-## ADR-012: Chequeo explícito de underflow `utime+stime` en M3
-**Contexto:** `delta_cpu = (curr->utime+stime) - (prev->utime+stime)` con
-aritmética `unsigned long long`. Si por alguna razón `prev > curr` (pid
-reciclado con mismo starttime por casualidad astronómica, corrupción de M1,
-bug futuro) el resultado hace wrap a un número enorme y el clamp final lo
-lleva a `100 * ncpus` en lugar de a 0 — falsa alarma de saturación.
-**Decisión:** comprobación explícita antes de restar; retorna -1.0f si
-`curr_cpu < prev_cpu`. `timestamp_ms` (CLOCK_MONOTONIC, mismo boot) no
-requiere el mismo chequeo porque el kernel garantiza monotonía (ADR-008).
-**Consecuencias:** un compare-and-branch extra; robustez ante violaciones de
-invariante de módulos aguas arriba. Test `underflow_returns_sentinel`
-protege contra regresiones. Principio general aplicable a futuras métricas
-con aritmética unsigned sobre deltas (I/O rates en Slice 2, etc.).
+## ADR-003: timestamp_ms único por scan, no por proceso
 
-## ADR-013: Tolerancia de tests float = 1e-3 via `TEST_ASSERT_FLOAT_WITHIN`
-**Contexto:** la fórmula de CPU% combina aritmética `double` con cast final a
-`float`. `TEST_ASSERT_EQUAL_FLOAT` (tolerancia ~1 ULP / 1.19e-7) funciona
-para los tests actuales pero es frágil ante reordenamientos del cálculo.
-**Decisión:** todos los tests de M3 usan `TEST_ASSERT_FLOAT_WITHIN(0.001f,
-expected, actual)`. Tolerancia 1e-3 es tres órdenes de magnitud menor que la
-granularidad operacional de un porcentaje (0.1%).
-**Consecuencias:** los tests sobreviven a cambios razonables del cálculo
-interno (reordenar multiplicaciones, cachear `max_pct`, etc.). Política
-aplicable por defecto a futuras métricas float (tasas I/O, bytes por
-segundo).
+**Contexto:** cada `pg_raw_sample_t` tiene `timestamp_ms`. Podría medirse
+por proceso o una sola vez por scan.
 
-## ADR-014: Filtrar sentinel `-1.0f` en el ranking de Slice 1
-**Contexto:** `main.c` del integrador de Slice 1 empareja dos scans por
-`pg_proc_id_t` y llama `pg_metrics_cpu_percent`. Por construcción (pareamos
-sólo cuando pid+starttime coinciden) los casos de sentinel por NULL args o
-ID mismatch no pueden ocurrir; sí puede aparecer el sentinel por violación
-de monotonía de jiffies (ADR-012). Había tres opciones de presentación:
-imprimir `"-1.0%"` verbatim, imprimir `"N/A"`, o filtrar.
-**Decisión:** `build_ranked` descarta del ranking todo proceso con
-`cpu < 0.0f`. El top puede tener menos de 5 filas si hay sentinels.
-**Consecuencias:** alinea con la semántica ADR-011 ("salta este proceso en
-esta iteración") — el comparador `pg_rank_cmp_cpu_desc` no necesita manejar
-valores negativos como caso especial. Si el usuario ve un top corto, indica
-que hubo procesos que el M3 rechazó; queda implícito en lugar de explícito.
-Aceptable para integrador temporal; cuando llegue el ciclo de gobernanza
-(Slice 3+) la política de alertas decidirá cómo reportar sentinels de forma
-no silenciosa (probable `journalctl` con nivel `warn`).
+**Decisión:** una llamada a `clock_gettime(CLOCK_MONOTONIC)` al inicio del
+scan; ese valor va a todas las muestras.
 
-## ADR-015: Fail-loud en errores de `pg_collector_scan` en main de Slice 1
-**Contexto:** `pg_collector_scan` puede retornar `PG_ERR_IO` (procfs
-inaccesible) o `PG_ERR_MEM` (OOM). El sketch original de `docs/plans/slice-1.md`
-§9 ignoraba el retorno: una falla producía una tabla vacía con exit 0.
-**Decisión:** `main` chequea el retorno de cada scan; en error, imprime
-`"procguard: scan #N failed"` a stderr, libera recursos vía `goto cleanup` y
-`return 1`. Patrón idéntico al que §9 ya aplicaba a `pg_collector_init`.
-**Consecuencias:** comportamiento coherente (init y scan fallan igual), exit
-code propagable a shells/CI, feedback inmediato al usuario. El coste son 6
-líneas extra y un `goto` — ya dentro del patrón estándar de cleanup del
-CLAUDE.md (§"Sin `goto` excepto para cleanup..."). En Slice 3 el ciclo de
-gobernanza probablemente registrará el error como evento de M7 en lugar de
-matar el daemon, pero la política "observar errores" se mantiene.
+**Consecuencias:** evita N syscalls por scan; los deltas para CPU% se
+calculan entre scans, no dentro. CLOCK_MONOTONIC es inmune a saltos NTP
+(uso exclusivo para timestamps internos).
 
-## ADR-016: Módulo `util/rank` extraído para TDD del integrador
-**Contexto:** CLAUDE.md regla 2 exige "no existe código sin test previo".
-`src/main.c` del Slice 1 es un integrador temporal (será reemplazado en
-Slice 2 por el ciclo de gobernanza con hilos), orquesta I/O y no se presta a
-unit test directo — `main` global más efectos `sleep(1)` y `sysconf`.
-El único componente puramente funcional del integrador es el comparador
-`qsort` sobre la struct `ranked_t`.
-**Decisión:** crear `src/util/rank.{c,h}` que expone `ranked_t` y
-`pg_rank_cmp_cpu_desc`. `tests/unit/test_rank.c` cubre el comparador con 3
-tests (orden descendente, guard contra truncación float→int, invariante de
-igualdad). `main.c` importa `rank.h` y queda como puro glue: 3 funciones
-static cortas (`build_ranked`, `print_top`, `main`), todas ≤ 50 líneas.
-**Consecuencias:** honra TDD en lo testeable y scope-discipline en lo
-desechable. El módulo `util/rank` sobrevive a la reescritura de Slice 2
-(el top-N por CPU% seguirá siendo una vista del TUI, M6). `main.c` queda
-sin tests unitarios — se valida con `make valgrind` + inspección visual,
-justificado por su naturaleza throwaway y explicitado en este ADR.
+---
 
+## ADR-004: Parser de `comm` usa el ÚLTIMO `)` como delimitador
+
+**Contexto:** `/proc/[pid]/stat` tiene formato `pid (comm) state ...` y
+`comm` puede contener espacios y paréntesis (`prctl(PR_SET_NAME)` acepta
+casi cualquier byte). Parser ingenuo con primer `)` falla.
+
+**Decisión:** `strchr(line, '(')` para el primero, `strrchr(line, ')')` para
+el último. Comm es el medio; resto se parsea posicionalmente tras el último `)`.
+
+**Consecuencias:** robusto ante nombres adversariales. Test dedicado protege
+contra regresiones.
+
+---
+
+## ADR-005: Identificación de proceso por (pid, starttime)
+
+**Contexto:** PIDs se reciclan. Un proceso nuevo con el PID de uno terminado
+puede aparentar ser "el mismo".
+
+**Decisión:** la tupla `pg_proc_id_t = {pid, starttime}` es la identidad.
+Métricas y políticas comparan ambos campos. M4 revalida antes de actuar.
+
+**Consecuencias:** previene acciones correctivas sobre PIDs reciclados.
+Obliga a tests que cubren explícitamente el caso recycled-pid.
+
+---
+
+## ADR-006: Sentinel `-1.0f` para muestra inutilizable en M3
+
+**Contexto:** `pg_metrics_cpu_percent` retorna `float`. Tres clases de
+error convergen: NULL args, ID mismatch, underflow de jiffies. Alternativas:
+NaN, out-param `int*`, o un único sentinel.
+
+**Decisión:** `-1.0f` uniforme. Caller chequea `result < 0.0f`. Los tres
+casos semánticamente son "no hay delta computable" — distinción más fina
+no aporta al caller.
+
+**Consecuencias:** API minimal sin `<math.h>`. El sentinel es imposible
+como resultado válido (el clamp garantiza `[0.0f, 100*ncpus]`). Aplicable
+como patrón a métricas float futuras (tasas I/O, bytes/s).
+
+---
+
+## ADR-007: Período de gracia G=10 ciclos implementado en M2, no en M1
+
+**Contexto:** procesos que desaparecen necesitan G ciclos de retención para
+que alertas pendientes completen evaluación (PDF §5.1). Quién gestiona el
+contador: M1 (tracking en collector) o M2 (contador por entry en store).
+
+**Decisión:** `pg_store_tick(store, grace)` en M2. M1 permanece stateless
+para lifecycle de buffers. Alinea con ADR-001.
+
+**Consecuencias:** M1 no necesita estado entre scans — cada scan es
+independiente. M2 concentra toda la lógica temporal (buffer circular +
+contador de ausencia + expiración).

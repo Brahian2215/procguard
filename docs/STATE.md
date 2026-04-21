@@ -1,66 +1,53 @@
 # Estado del Proyecto
 
-## Última actualización
-Sesión 3 — 2026-04-19 — Slice 1 cerrado: main integrador + `make valgrind` verde
+## Estado actual
 
-## Módulos completados
-- M1 Data Collector (parcial): `pg_collector_init/scan/destroy` con procfs path
-  configurable. Parser de `/proc/[pid]/stat` robusto a `comm` con paréntesis
-  internos. ASAN limpio (0 leaks). Pendiente para slices futuros: `vmrss`
-  (Slice 2), gracia G=10 ciclos para procesos desaparecidos (Slice 2+),
-  filtrado de kernel threads (Slice 2 con TUI).
-- M3 Metrics Engine (parcial): `pg_metrics_cpu_percent(prev, curr, hz, ncpus)`
-  como función pura stateless con clamp a `[0, 100*ncpus]`, sentinel `-1.0f`
-  para NULL args / ID mismatch / underflow (ADRs 010–013). Pendiente para
-  slices futuros: tasas I/O y red (Slice 2+), RSS trend (Slice 2+).
-- `src/util/rank` (aux): `ranked_t` + `pg_rank_cmp_cpu_desc` (ADR-016).
-  Módulo puro testeable, sobrevive a la reescritura de Slice 2 (top-N por
-  CPU% será la vista principal del TUI M6).
-- Integrador `src/main.c` (Slice 1, temporal): dos scans separados por
-  `sleep(1)`, pareo por `pg_proc_id_t`, top-5 descendente por CPU% a stdout.
-  Filtra sentinels (ADR-014), fail-loud en errores de scan (ADR-015).
+Slice 1 cerrado + M1/M2 extendidos (statm, io, kernel thread filter, store
+básico). `make asan && make test && make lint-funclen && make valgrind`
+verdes. 20 tests totales (8 collector + 5 metrics + 7 store).
 
-## Tests pasando
-- `tests/unit/test_collector.c` — 5 tests, 5 passed, 0 failed
-  - `test_scan_finds_all_three`
-  - `test_disappeared_process`
-  - `test_recycled_pid`
-  - `test_malformed_stat_is_skipped`
-  - `test_parses_comm_with_internal_parens`
-- `tests/unit/test_metrics.c` — 8 tests, 8 passed, 0 failed
-  - `test_idle_process`
-  - `test_one_percent`
-  - `test_recycled_pid_starttime_differs`
-  - `test_recycled_pid_pid_differs`
-  - `test_full_cpu_saturates_clamp`
-  - `test_zero_elapsed`
-  - `test_null_args`
-  - `test_underflow_returns_sentinel`
-- `tests/unit/test_rank.c` — 3 tests, 3 passed, 0 failed
-  - `test_orders_descending`
-  - `test_orders_fractional_differences`
-  - `test_equal_cpu_returns_zero`
+Módulos:
+- **M1 Collector** (`src/collector/`): scan de procfs con `vmrss_bytes` (statm),
+  counters I/O (io), filtro opcional de kernel threads.
+- **M2 Sample Store** (`src/store/`): `init/insert/get_history/destroy` con
+  buffer circular por `pg_proc_id_t`. Falta `pg_store_tick` + gracia G=10.
+- **M3 Metrics** (`src/metrics/`): `pg_metrics_cpu_percent` función pura con
+  clamp `[0, 100*ncpus]` y sentinel `-1.0f` para casos inválidos.
+- **main.c** (integrador Slice 1/2, temporal): dos scans con `sleep(1)`,
+  top-5 por CPU% a stdout.
 
-## Estado del build
-- `make asan` — exit 0, cero warnings bajo `-Wall -Wextra -Werror -Wshadow
-  -Wpointer-arith -Wcast-align -Wstrict-prototypes -Wmissing-prototypes`.
-- `make test` — verde (16 tests totales: 5 collector + 8 metrics + 3 rank).
-- `make lint-funclen` — OK (todas las funciones <= 50 líneas).
-- `make valgrind` — exit 0, `0 bytes in 0 blocks lost`, allocs == frees.
-  Requiere build no-ASAN (`make clean && make debug` antes): ASan interpone
-  su propio malloc y no convive con memcheck en el mismo binario. UBSan por
-  sí solo sí convive, pero nuestro `CFLAGS_ASAN` activa ambos.
+## Roadmap restante
 
-## Última acción ejecutada
-add slice-1 main: two-scan cpu top-5 integrator (4dad16e)
+| Slice | Objetivo | Estado |
+|---|---|---|
+| 2 | Extender M1 (statm, io, skip_kt) + M2 store + tick+gracia | **En curso** — falta tick/gracia y cablear store en main |
+| 3 | M4 Alert & Governance (políticas estáticas, histéresis, cooldown, dry-run) | Pendiente |
+| 4 | Threading: hilos gobernanza + inotify, M5 Security (4 heurísticas) | Pendiente |
+| 5 | M6 TUI (ncurses, tercer hilo) | Pendiente |
+| 6 | M7 Report (JSON lines, snapshots, HTML) + acciones M4 reales | Pendiente |
+| 7 | Modo daemon, hardening, SIGHUP reload | Pendiente |
 
-## Próximos pasos
-1. Slice 2 / Sesión 1: diseño de M2 Sample Store (`pg_store_init/insert/
-   get_history/destroy`) con buffer circular de N muestras por `pg_proc_id_t`.
-   Ver `docs/ROADMAP.md` §"Slice 2" — incluye extensión de M1 para `vmrss`
-   (parser de `/proc/[pid]/statm`), tasas I/O (`/proc/[pid]/io`) y el
-   período de gracia G=10 ciclos para procesos desaparecidos.
-2. Deuda técnica de Slice 1 a retomar en Slice 3 (cuando haya 2+ módulos con
-   tests): migrar a `build/tests/` con objetos ASAN reutilizables y
-   `mkdtemp` para fixtures de procfs sintético (hoy `/tmp/pg_test_proc/`
-   es fijo, colisiona con `-j`).
+Orden fijado por dependencias de datos: M1 → M2 → M3 → M4 → (M5‖M6) → M7.
+Cada slice cierra con `make asan && make test && make valgrind` verdes.
+
+## Próximos pasos (Slice 2, lo que queda)
+
+1. `pg_store_tick(store, grace_cycles)` — incrementa `absent_cycles` y libera
+   entries vencidas. Ver `docs/plans/slice-2.md`.
+2. Cablear store en `main.c`: insertar scans, llamar tick entre medias.
+3. Smoke de `make valgrind` con el store en el path caliente.
+
+## Deuda técnica
+
+- Patrón "compilar fuentes inline en cada test binary" no escala. En Slice 3+
+  introducir `build/tests/` con objetos ASAN reutilizables.
+- Path fijo `/tmp/pg_test_proc` para fixtures. Migrar a `mkdtemp` cuando
+  haya más de un binario con fixtures de procfs.
+- `make valgrind` requiere build sin ASAN (los dos sanitizers no conviven):
+  `make clean && make debug && make valgrind`. Considerar target
+  `valgrind-ci` que haga el reset internamente cuando exista CI.
+- `/proc/[pid]/io` requiere root o mismo UID; corriendo como usuario
+  normal la mayoría de procesos tendrán los 4 counters en 0. No es bug.
+- Sección 5.11 del PDF (concurrencia detallada: tamaños exactos de colas,
+  protocolo de mutex) leerse antes de Slice 4 — resumen en
+  `docs/plans/slice-4-concurrency.md`.

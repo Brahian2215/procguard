@@ -1,246 +1,157 @@
 # ProcGuard — Instrucciones del Proyecto
 
-## Qué es este proyecto
-
-ProcGuard es un sistema de gobernanza activa de procesos para Linux que
-implementa el ciclo observación → detección → decisión → acción → registro.
-Es el proyecto final del curso de Sistemas Operativos (2026-1, U. de Antioquia).
-El diseño completo está en `docs/ProcGuard_Proyecto_Final.pdf`.
-Léelo únicamente cuando lo pida explícitamente o cuando necesites la
-especificación de un módulo concreto. No lo cargues en cada sesión.
+Sistema de gobernanza activa de procesos para Linux (observación →
+detección → decisión → acción → registro). Proyecto final Sistemas
+Operativos 2026-1, U. de Antioquia. Spec completa en
+`docs/ProcGuard_Proyecto_Final.pdf` (cárgala solo cuando la necesites).
 
 ## Restricciones técnicas inviolables
 
-- Lenguaje: C estándar C11. Nada de C++, Rust, ni extensiones GNU gratuitas.
-- Plataforma: Linux (kernel 5.x+) con cgroups v2 unified hierarchy.
-- Dependencias externas permitidas: solo ncursesw (TUI), inih (INI parsing,
-  vendored en `src/common/inih/`) y cJSON (JSON, vendored en
-  `src/common/cjson/`). Cualquier otra dependencia requiere mi aprobación
-  explícita.
-- Compilación: debe compilar limpio con `-Wall -Wextra -Werror`. Sin
-  excepciones. Un warning es un error.
-- Threading: pthreads POSIX. No uses C11 threads ni OpenMP.
-- Build: Make. No introduzcas CMake, Meson ni otros.
+- **C estándar C11**. Sin C++, Rust, ni extensiones GNU gratuitas. `_GNU_SOURCE`
+  permitido donde haga falta.
+- **Linux 5.x+** con cgroups v2 unified hierarchy.
+- **Dependencias externas permitidas**: `ncursesw` (TUI), `inih` (vendored en
+  `src/common/inih/`), `cJSON` (vendored en `src/common/cjson/`). Cualquier
+  otra requiere aprobación explícita.
+- **Compilación limpia**: `-Wall -Wextra -Werror -Wshadow -Wpointer-arith
+  -Wcast-align -Wstrict-prototypes -Wmissing-prototypes`. Un warning es
+  un error.
+- **Threading**: pthreads POSIX. No C11 threads ni OpenMP.
+- **Build**: Make. No CMake, no Meson.
 
 ## Arquitectura (siete módulos)
 
-- M1 Data Collector (`src/collector/`): lee procfs, identifica procesos por
-  (pid, starttime). Procesos desaparecidos se conservan G=10 ciclos de gracia
-  antes de liberar su buffer circular (permite snapshots forenses del historial).
-- M2 Sample Store (`src/store/`): buffer circular de N muestras por proceso.
-- M3 Metrics Engine (`src/metrics/`): calcula CPU%, RSS, tasas I/O, red.
-- M4 Alert & Governance (`src/alert/`): políticas, persistencia, histéresis,
-  cooldown, escalamiento. Antes de ejecutar cualquier acción correctiva,
-  revalida que el par (pid, starttime) sigue siendo el mismo proceso que
-  generó la alerta (previene actuar sobre PIDs reciclados).
-- M5 Security Engine (`src/security/`): cuatro heurísticas (port scan,
+- **M1 Data Collector** (`src/collector/`): procfs → `pg_raw_sample_t[]`.
+  Identifica procesos por `(pid, starttime)`.
+- **M2 Sample Store** (`src/store/`): buffer circular de N muestras por
+  proceso; gestiona período de gracia G=10 ciclos.
+- **M3 Metrics Engine** (`src/metrics/`): CPU%, RSS, tasas I/O, red.
+  Funciones puras.
+- **M4 Alert & Governance** (`src/alert/`): políticas (inih), histéresis,
+  cooldown, escalamiento. Revalida `(pid, starttime)` antes de actuar.
+- **M5 Security Engine** (`src/security/`): cuatro heurísticas (port scan,
   camuflados, enumeración, huérfanos anómalos).
-- M6 TUI (`src/tui/`): ncurses, hilo dedicado.
-- M7 Report (`src/report/`): JSON lines + snapshots + HTML.
+- **M6 TUI** (`src/tui/`): ncurses, hilo dedicado.
+- **M7 Report** (`src/report/`): JSON lines + snapshots + HTML (cJSON).
 
-Modelo de concurrencia:
-- Modo interactivo: tres hilos (gobernanza, inotify listener, TUI) con
-  comunicación por tres mutex independientes.
-- Modo daemon: dos hilos (gobernanza + inotify; el hilo TUI no se instancia).
-Nunca un hilo adquiere más de un mutex a la vez. Detalle en sección 5.11 del PDF.
+Orden de desarrollo por dependencias: M1 → M2 → M3 → M4 → (M5‖M6) → M7.
 
-Ciclo de gobernanza (10 pasos en orden fijo):
-1. Consumir colas (comandos TUI encolados + eventos inotify encolados)
-2. Recolectar (lectura procfs, best-effort por proceso)
-3. Calcular métricas derivadas
-4. Evaluar rendimiento (métricas vs políticas)
-5. Evaluar seguridad (heurísticas acumulativas + eventos inotify)
-6. Validar (revalidar pid+starttime; comprobar protecciones)
-7. Actuar (ejecutar acción escalada, o registrar en dry-run)
-8. Capturar (snapshot forense si aplica)
-9. Registrar (log JSON lines + syslog)
-10. Visualizar (depositar resultados en estructura compartida para hilo TUI)
+**Concurrencia**: modo interactivo 3 hilos (gobernanza, inotify, TUI);
+modo daemon 2 hilos (sin TUI). Mutex independientes, ningún hilo toma más
+de uno simultáneamente. Detalle en `docs/plans/slice-4-concurrency.md`.
 
-## Reglas de proceso (NO NEGOCIABLES)
+**Ciclo de gobernanza (10 pasos)**: consumir colas → recolectar → calcular →
+evaluar rendimiento → evaluar seguridad → validar → actuar → capturar →
+registrar → visualizar.
 
-1. **Plan primero, código después.** Antes de escribir o modificar código,
-   presenta un plan breve: qué archivos vas a tocar, qué funciones vas a
-   crear/cambiar, qué tests vas a escribir. Espera mi OK antes de ejecutar.
+## Reglas de proceso
 
-   **Flujo de plan obligatorio**:
-   1. Lee el plan técnico de la sesión (`docs/plans/slice-N.md` sección
-      correspondiente) si existe.
-   2. **Revisión crítica**: identifica ambigüedades, contradicciones,
-      decisiones que el plan no tomó, off-by-one en conteos, suposiciones
-      sobre APIs externas. NO asumas — pregunta.
-   3. **Resuelve ambigüedades vía AskUserQuestion** ANTES de ExitPlanMode.
-      Cada respuesta del usuario que defina una decisión arquitectónica
-      se registra como ADR en `docs/DECISIONS.md` ANTES del commit final.
-   4. ExitPlanMode con plan que incorpora las decisiones tomadas.
+1. **Plan primero para cambios no triviales.** Lee el plan del slice
+   (`docs/plans/slice-N.md`) si existe. Identifica ambigüedades antes de
+   codear — pregunta si algo no está claro. Decisiones arquitectónicas nuevas
+   se registran como ADR en `docs/DECISIONS.md` antes del commit. Para fixes
+   pequeños o refactors obvios, ir directo.
 
-2. **TDD estricto.** Para toda función no trivial: escribe el test primero,
-   ejecútalo y confirma que falla, escribe la implementación mínima,
-   ejecuta y confirma que pasa, refactoriza, vuelve a correr tests.
-   No existe código sin test previo.
+2. **TDD para funciones con lógica propia.** Parser de procfs, buffer
+   circular, aritmética de métricas, evaluación de políticas: test primero,
+   falla, implementa, pasa, refactoriza. Glue code, wrappers triviales y
+   comparadores de pocas líneas **no** requieren test dedicado — se validan
+   con valgrind + inspección visual del integrador.
 
-   - Para iteración rápida en RED-GREEN, usa `make test-quick` (desactiva
-     leak detection de ASAN para que las assertions no queden ocultas
-     por dump de leaks cuando un test falla y no llega al cleanup).
-   - Para verificación final antes de commit, usa `make test` (con leak
-     detection completa).
+3. **Compilar y testear tras cada cambio.** `make asan && make test`. Si
+   algo falla, arreglar antes de continuar. Usa `make test-quick` para
+   iterar en RED-GREEN sin ruido de leaks; `make test` para verificación
+   final.
 
-3. **Mini-spike pre-TDD para APIs no triviales.** Si el plan requiere
-   usar sintaxis no obvia (sscanf complejo, pthread, ioctl, syscalls
-   exóticas), compila un mini-snippet con los flags reales del proyecto
-   ANTES de escribir tests. Treinta segundos que ahorran un round-trip
-   de "el test compila pero el código de producción no". Consulta
-   `docs/MAKEFILE_GOTCHAS.md` para gotchas conocidos.
-
-4. **Compilar y testear tras cada cambio.** Después de cada modificación,
-   ejecuta `make asan && make test`. Si algo falla, arregla antes de
-   continuar. Nunca avances con el árbol en estado roto.
-
-5. **Commits frecuentes.** Commit tras cada tarea que deja el árbol verde.
-   Mensajes en formato imperativo ("add collector skeleton", no "added...").
+4. **Commits por tarea verde.** Mensaje imperativo ("add X", no "added X").
    Nunca commits que rompen el build.
 
-6. **Scope discipline.** Haz exactamente lo pedido, nada más. Si ves algo
-   que deberías cambiar fuera del scope, anótalo en `docs/TODO.md` y sigue.
+5. **Funciones ≤50 líneas.** `make lint-funclen` antes del commit final.
+   Refactoriza extrayendo helpers `static` si se pasa.
 
-7. **Cuestiona malas decisiones.** Si detectas que lo que pido llevará a
-   mala arquitectura, dimelo antes de implementarlo. Mejor perder 5 minutos
-   discutiendo que 5 horas rehaciendo.
+6. **No inventes APIs.** Verifica firmas de syscalls/libc en `man` antes
+   de usarlas. Si un `sscanf` o `ioctl` no es obvio, compila un snippet
+   aparte con los flags reales del proyecto antes de incorporarlo.
 
-8. **No inventes APIs.** Antes de usar una función de sistema (syscall o
-   libc), verifica su firma exacta en el manual. En C, asumir hace crashes.
+7. **Cuestiona malas decisiones.** Si lo que pido lleva a mala arquitectura,
+   dímelo antes de implementar.
 
-9. **Funciones ≤50 líneas, enforced.** Antes del commit final, ejecuta
-   `make lint-funclen`. Si reporta funciones largas, refactoriza
-   (extraer helpers `static`) hasta que el target salga limpio.
+8. **Scope discipline.** Haz exactamente lo pedido. Cosas fuera de scope
+   van a la sección "Deuda técnica" de `docs/STATE.md`, no al commit actual.
 
-## Estándares de código
+## Convenciones de código
 
-- Funciones: máximo 50 líneas. Si pasa, refactoriza.
-- Un archivo `.c` tiene su header `.h` correspondiente. Headers con guards
-  `#ifndef PG_MODULE_NAME_H`.
-- Nombres: `snake_case` para funciones y variables, `UPPER_CASE` para
-  macros y constantes, prefijo `pg_` para funciones públicas de módulo.
-- Manejo de errores: toda función que puede fallar retorna un `int` con
-  código de error. No uses `errno` como canal de retorno. Documenta qué
-  errores retorna cada función en el header.
-- Sin `malloc` sin su `free` correspondiente en la misma sesión de diseño.
-  Ownership explícito y documentado en cada header.
-- Sin `goto` excepto para cleanup en funciones largas (patrón estándar).
-- Sin magic numbers. Usa constantes con nombre o macros.
-- Comentarios: explica el porqué, no el qué. El código debe explicarse solo.
+- **Estilo**: `snake_case` para funciones/variables, `UPPER_CASE` para
+  macros, prefijo `pg_` para funciones públicas de módulo.
+- **Headers**: guards `#ifndef PG_MODULE_NAME_H`. Un `.c` → un `.h`.
+- **Errores**: toda función que puede fallar retorna `int` con código
+  (`PG_OK`, `PG_ERR_PARSE`, `PG_ERR_IO`, `PG_ERR_MEM`). No `errno` como
+  canal de retorno.
+- **API pública defensiva**: funciones públicas validan NULL y retornan
+  `PG_ERR_PARSE`. `pg_X_destroy(NULL)` es no-op (idiomático estilo `free`).
+- **Structs públicas**: append-only mientras no exista ABI estable.
+  Campos nuevos en 0 cuando la fuente subyacente falla.
+- **Ownership**: cada `malloc` tiene su `free` en la misma sesión de
+  diseño. Documentado en el header.
+- **Sin globals mutables**. Pasa estado explícitamente.
+- **Sin magic numbers**. Constantes con nombre o macros.
+- **Sin `goto`** excepto cleanup en funciones largas.
+- **Comentarios**: explica el porqué, no el qué.
+- **Tolerancia de tests float**: `TEST_ASSERT_FLOAT_WITHIN(0.001f, ...)`.
+  1 ULP es frágil ante reordenamientos de cálculo.
 
 ## Testing
 
-- Framework: Unity (single-header, lo vendoramos en `tests/unity/`). No
-  escribas tu propio framework de testing.
-- Todo módulo tiene `tests/unit/test_<modulo>.c`.
-- Tests de integración usan procfs sintético en `/tmp/pg_test_proc/`.
-  El path base de `/proc` debe ser configurable en el recolector.
-- Estructura mínima del procfs sintético por proceso:
+- **Framework**: Unity (vendored en `tests/unity/`).
+- **Procfs sintético** en `/tmp/pg_test_proc/` con estructura:
   ```
-  /tmp/pg_test_proc/
-  └── <pid>/
-      ├── stat    # formato idéntico a /proc/[pid]/stat (52 campos posicionales)
-      ├── statm   # 7 campos: size resident shared text lib data dt
-      └── io      # pares clave: valor (rchar, wchar, read_bytes, write_bytes)
+  /tmp/pg_test_proc/<pid>/
+      stat    # 52 campos posicionales
+      statm   # 7 campos: size resident shared text lib data dt
+      io      # pares clave: valor (rchar, wchar, read_bytes, write_bytes)
   ```
-  Campos mínimos requeridos en `stat` (posición 1-indexed):
-  pid(1) comm(2) state(3) ppid(4) utime(14) stime(15) starttime(22) tty_nr(7).
-  El resto de campos puede ser 0. `comm` va entre paréntesis: `(bash)`.
-  Parser correcto para `comm`: buscar el último `)` en la línea (el nombre puede
-  contener espacios y paréntesis internos); extraer entre el primer `(` y ese `)`.
-- Build de tests: `make test` (lo definirás cuando exista el primer test).
-- Antes de declarar "terminado" un módulo: debe pasar valgrind sin leaks y
-  ASAN sin errores.
+  Campos mínimos en `stat` (1-indexed): pid(1) comm(2) state(3) ppid(4)
+  tty_nr(7) utime(14) stime(15) starttime(22). Resto puede ser 0.
+  `comm` entre paréntesis: `(bash)`; parser usa el ÚLTIMO `)` como
+  delimitador (puede contener paréntesis internos).
+- **Antes de declarar un módulo terminado**: `make asan` + `make test` +
+  `make valgrind` verdes.
 
-## Prohibiciones específicas
+## Archivos del proyecto
 
-- No uses `system()`, `popen()` para lógica crítica (sí en tests donde
+- `docs/STATE.md` — estado, roadmap, próximos pasos, deuda técnica.
+- `docs/DECISIONS.md` — ADRs (solo trade-offs reales con consecuencias).
+- `docs/plans/slice-N.md` — plan del slice activo.
+- `docs/MAKEFILE_GOTCHAS.md` — warnings no obvios y sus fixes.
+- `docs/plans/slice-4-concurrency.md` — modelo de tres hilos; leer antes
+  de Slice 4.
+
+Al cerrar sesión, actualizar `docs/STATE.md`.
+
+## Prohibiciones
+
+- No `system()`/`popen()` para lógica crítica (sí en tests donde
   simplifica).
-- No silencies warnings con `__attribute__((unused))` salvo que sea
-  inevitable y lo comentes.
-- No uses variables globales mutables. Pasa estado explícitamente.
-- No introduzcas threading donde no esté arquitectónicamente justificado.
-  El modelo de tres hilos está decidido.
-- No optimices prematuramente. Primero correcto, después rápido.
+- No `__attribute__((unused))` para silenciar warnings — arregla el warning.
+- No threading donde no esté arquitectónicamente justificado.
+- No optimices prematuramente.
 
-## Orden de desarrollo de módulos
-
-Las dependencias de datos imponen este orden:
-M1 → M2 → M3 → M4 → M5 (paralelo con M4) → M6 → M7
-
-- M1 es prerequisito de todos: produce los pg_raw_sample_t
-- M2 requiere M1: almacena sus muestras en buffer circular
-- M3 requiere M2: necesita al menos 2 muestras para calcular deltas
-- M4 requiere M3: evalúa métricas calculadas contra políticas
-- M5 requiere M1+M2 (análisis acumulativo) + hilo inotify (notificaciones push)
-- M6 requiere M4: visualiza alertas activas y métricas
-- M7 requiere M4+M5: registra alertas y eventos de seguridad
-
-No implementes un módulo sin que sus prerequisitos pasen sus propios tests.
-
-## Flujo de trabajo
-
-1. Empiezo una sesión con una tarea concreta.
-2. Entras en plan mode, lees lo mínimo necesario, presentas plan.
-3. Apruebo o ajusto.
-4. Implementas siguiendo TDD, commiteando por tarea verde.
-5. Al final, actualizas `docs/STATE.md` con qué quedó hecho, decisiones
-   tomadas, y qué sigue.
-
-## Archivos de memoria del proyecto
-
-Lee al inicio de cada sesión nueva:
-- `docs/STATE.md` — estado actual, módulos completos, próximos pasos
-- `docs/ROADMAP.md` — mapa de slices restantes (alto nivel)
-
-Consulta según necesidad:
-- `docs/DECISIONS.md` — decisiones arquitectónicas (ADRs) con justificación
-- `docs/TODO.md` — deuda técnica fuera del scope actual
-- `docs/MAKEFILE_GOTCHAS.md` — warnings y errores no obvios del compilador
-  con sus fixes
-- `docs/concurrency.md` — modelo de tres hilos (extracto de PDF §5.11);
-  prerequisito de cualquier código que toque hilos o estructuras compartidas
-- `docs/plans/slice-N.md` — plan técnico detallado del slice N
-- `docs/ProcGuard_Proyecto_Final.pdf` — spec completa; sólo cuando se pida
-  explícitamente o se necesite la sección de un módulo concreto
-
-### Template obligatorio para STATE.md
-
-Al cerrar cada sesión, actualiza `docs/STATE.md` con este formato exacto:
-
-```
-## Última actualización
-Sesión N — YYYY-MM-DD — descripción breve de qué se completó
-
-## Módulos completados
-- Mód X: funciones implementadas, tests passing (valgrind + ASAN limpios)
-
-## Tests pasando
-- tests/unit/test_X.c (N tests: N passed, 0 failed)
-
-## Última acción ejecutada
-<mensaje del último commit> (<hash corto>)
-
-## Próximos pasos
-1. Primera tarea de la sesión siguiente
-2. Segunda tarea (si ya conocida)
-```
-
-## Cómo construir y correr
+## Comandos
 
 ```bash
-make debug     # build con símbolos y sin optimización
-make asan      # build con AddressSanitizer
-make test      # corre todos los tests (cuando existan)
-make valgrind  # corre el binario bajo valgrind --leak-check=full
+make debug           # símbolos, sin optimización
+make asan            # AddressSanitizer + UBSAN
+make test            # tests con leak detection
+make test-quick      # tests sin leak detection (iteración RED-GREEN)
+make valgrind        # memcheck (requiere build sin ASAN)
+make lint-funclen    # flaggea funciones >50 líneas
 make clean
 ```
 
-## Fuera de alcance (deliberadamente)
+Workflow valgrind: `make clean && make debug && make valgrind` (ASan y
+valgrind no conviven).
 
-- Portabilidad a BSD, macOS o Windows.
-- Soporte para cgroups v1.
-- Internacionalización.
-- Interfaz gráfica fuera de TUI.
-- Modo cliente-servidor o API REST.
+## Fuera de alcance
+
+Portabilidad BSD/macOS/Windows, cgroups v1, i18n, GUI fuera de TUI, modo
+cliente-servidor o REST.
