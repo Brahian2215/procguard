@@ -120,3 +120,100 @@ inyecte como parámetros.
 arbitrarios sin depender del host. Tests pueden fijar `hz=100, ncpus=4` y
 verificar fórmulas exactamente. Misma convención aplica a métricas futuras
 de M3 que requieran constantes del host.
+
+---
+
+## ADR-009: Syscalls destructivas inyectadas vía struct de punteros en M4
+
+**Contexto:** `pg_alert_engine` ejecuta acciones que tocan procesos reales
+(`kill(pid, SIGSTOP)`, `kill(pid, SIGKILL)`, `setpriority`). Tests no pueden
+ejercitar estas rutas sin procesos víctima ni condiciones de carrera.
+Alternativas: compilar el engine en dos variantes (real y test), interceptar
+vía `LD_PRELOAD`, o inyectar los syscalls como punteros.
+
+**Decisión:** `pg_alert_engine_init` acepta opcionalmente una `pg_syscalls_t`
+con punteros a `kill` y `setpriority`; por defecto apuntan a libc. Tests
+inyectan stubs que cuentan invocaciones y argumentos.
+
+**Consecuencias:** tests deterministas sin efectos laterales en el sistema.
+Extiende el patrón de ADR-008 (inyección de constantes del host) a syscalls.
+Coste: una indirección por llamada — irrelevante ante la frecuencia
+(acciones se emiten tras `persistence` ciclos, no cada tick).
+
+---
+
+## ADR-010: Pipeline `evaluate → validate → act` con lista ephemeral
+
+**Contexto:** PDF §5.10 separa los pasos 4 (evaluar rendimiento), 6 (validar)
+y 7 (actuar). Opciones: (a) fusionarlos en un solo recorrido que llama
+syscalls dentro del evaluador, (b) tres pases secuenciales sobre el array de
+muestras con una lista intermedia de decisiones.
+
+**Decisión:** tres pases. `evaluate()` produce `pg_alert_decision_t[]`
+efímera (vive un ciclo); `validate()` anota `skip_reason` sin emitir
+syscalls; `act()` dispatcha sólo las decisiones con `skip_reason==NULL`.
+Dry-run vive exclusivamente en `act()`.
+
+**Consecuencias:** cada pase es testeable aisladamente (inputs claros,
+outputs observables). El dry-run no ensucia la lógica de evaluación: se
+implementa cambiando dispatch en `act()` sin tocar contadores de
+persistence/hysteresis. Coste: una asignación + `free` por ciclo —
+amortizado contra el resto del ciclo de gobernanza.
+
+---
+
+## ADR-011: `risk_level` informativo, `actions` obligatorio
+
+**Contexto:** PDF §5.4 declara un array `actions` por política (fuente de
+verdad para escalamiento) y §5.5 una tabla que asocia riesgo → acción
+sugerida. Si ambos se usan, una política con `risk=critical` sin `actions`
+es ambigua: ¿fallback a la tabla §5.5 o error?
+
+**Decisión:** `actions` es requerido. `risk_level` es metadato para logs y
+TUI, sin efecto en el engine. Parser rechaza políticas sin `actions`.
+
+**Consecuencias:** una sola fuente de verdad para escalamiento (el array
+`actions[]`). Elimina código de fallback que sería difícil de probar. El
+admin tiene que declarar explícitamente qué hace el engine — alinea con
+filosofía fail-loud del proyecto.
+
+---
+
+## ADR-012: Whitelist dinámica vía `ppid == own_pid` en runtime
+
+**Contexto:** ProcGuard lanza hijos (ej. reporter M7, próximos subprocesos
+de cgroups en 4b). Matarlos accidentalmente sería catastrófico. Opciones:
+(a) API de registro explícito (`pg_alert_register_child(pid)`), (b) chequeo
+runtime de `sample->ppid == engine->own_pid`.
+
+**Decisión:** runtime. El whitelist se computa por ciclo comparando
+`sample->ppid` contra `own_pid` (capturado en `engine_init`).
+
+**Consecuencias:** cubre hijos futuros sin necesidad de hooks en cada
+`fork()`. No hay estado mutable de registro (todo derivado del sample).
+Trade-off: un `ppid` reciclado por el kernel cuando el hijo muere y otro
+proceso hereda esa relación padre–hijo podría aparentar ser hijo; en
+práctica Linux solo pone `ppid=1` (reparenting a init) tras muerte del
+padre, así que el falso positivo es imposible mientras ProcGuard viva.
+
+---
+
+## ADR-013: Freeze de contadores M4 durante ausencia; GC alineado con M2
+
+**Contexto:** cuando un proceso no aparece en el scan actual (terminó,
+permission denied intermitente), los contadores `persistence` y
+`hysteresis` del `pg_alert_state_t` correspondiente necesitan una política.
+Opciones: (a) reset a 0 (proceso "nuevo"), (b) incremento de una ausencia
+counter paralela, (c) freeze (no tocar).
+
+**Decisión:** freeze. Nadie toca el state si no hay sample en el ciclo. La
+vida útil del state está atada al lifecycle de M2: `pg_alert_engine_gc()`
+se invoca tras `pg_store_tick()` y libera entries cuyo `id` ya no está en
+el store (M2 ya aplicó el período de gracia G=10 de ADR-007).
+
+**Consecuencias:** M4 no reimplementa contador de ausencia — delega en la
+gracia de M2. Si un proceso desaparece 3 ciclos y vuelve, sus contadores
+siguen donde estaban (correcto: es el mismo proceso por `(pid, starttime)`).
+Si desaparece >G=10 ciclos, M2 lo expira y el siguiente `gc` libera el
+state. Orden obligatorio en el integrador: `engine_cycle → store_tick →
+engine_gc`.
