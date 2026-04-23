@@ -11,11 +11,20 @@ CFLAGS_TEST := -g3 -O1
 LDFLAGS := -pthread
 LDLIBS := -lncursesw
 
-SRC_DIR       := src
-BUILD_DIR     := build
-TEST_DIR      := tests
-UNITY_DIR     := tests/unity
-TEST_UNIT_DIR := tests/unit
+SRC_DIR        := src
+BUILD_DIR      := build
+TESTS_BUILD_DIR := $(BUILD_DIR)/tests
+TEST_DIR       := tests
+UNITY_DIR      := tests/unity
+TEST_UNIT_DIR  := tests/unit
+
+# Flags unificadas para compilar objetos y binarios de test con ASAN+UBSAN.
+# Todo module source compilado bajo test lleva estas flags; los include dirs
+# cubren los headers cruzados que cualquier test podría consumir.
+TEST_INCLUDES := -I$(UNITY_DIR) -Isrc/common \
+                 -Isrc/collector -Isrc/metrics -Isrc/store
+TEST_CFLAGS   := $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) $(TEST_INCLUDES)
+TEST_LDFLAGS  := $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
 .PHONY: all debug release asan test test-quick valgrind clean format lint lint-funclen help
 
@@ -70,32 +79,37 @@ lint-funclen:
 $(BUILD_DIR):
 	mkdir -p $@
 
+$(TESTS_BUILD_DIR): | $(BUILD_DIR)
+	mkdir -p $@
+
 # Unity: vendored third-party — sin -Werror ni $(CFLAGS) del proyecto.
-$(BUILD_DIR)/unity.o: $(UNITY_DIR)/unity.c | $(BUILD_DIR)
+$(TESTS_BUILD_DIR)/unity.o: $(UNITY_DIR)/unity.c | $(TESTS_BUILD_DIR)
 	$(CC) -std=c11 -O1 -g3 -I$(UNITY_DIR) -c $< -o $@
 
-# test_collector: fuentes inline con ASAN+UBSAN.
-# Compila collector.c en el binario de test (evita conflicto con build normal).
+# Objetos de módulos del proyecto compilados bajo ASAN+UBSAN para reutilizar
+# entre binarios de test. Evita recompilar los mismos .c en cada test_X.
+$(TESTS_BUILD_DIR)/collector.o: src/collector/collector.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
+$(TESTS_BUILD_DIR)/metrics.o: src/metrics/metrics.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
+$(TESTS_BUILD_DIR)/store.o: src/store/store.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/test_collector: $(TEST_UNIT_DIR)/test_collector.c \
-		src/collector/collector.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
-	  -I$(UNITY_DIR) -Isrc/common -Isrc/collector \
-	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
+		$(TESTS_BUILD_DIR)/collector.o $(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
-# test_metrics: M3 es función pura; metrics.c se compila inline.
 $(BUILD_DIR)/test_metrics: $(TEST_UNIT_DIR)/test_metrics.c \
-		src/metrics/metrics.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
-	  -I$(UNITY_DIR) -Isrc/common -Isrc/metrics \
-	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
+		$(TESTS_BUILD_DIR)/metrics.o $(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
-# test_store: M2 Sample Store. Linkea collector.c también para el test de
-# integración end-to-end scan → insert → get_history.
+# test_store linkea collector.o para el test end-to-end scan→insert→history.
 $(BUILD_DIR)/test_store: $(TEST_UNIT_DIR)/test_store.c \
-		src/store/store.c src/collector/collector.c $(BUILD_DIR)/unity.o | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) \
-	  -I$(UNITY_DIR) -Isrc/common -Isrc/store -Isrc/collector \
-	  $^ -o $@ $(LDFLAGS) -fsanitize=address -fsanitize=undefined
+		$(TESTS_BUILD_DIR)/store.o $(TESTS_BUILD_DIR)/collector.o \
+		$(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
 TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
              $(BUILD_DIR)/test_store
