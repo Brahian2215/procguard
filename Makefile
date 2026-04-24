@@ -86,6 +86,13 @@ $(TESTS_BUILD_DIR): | $(BUILD_DIR)
 $(TESTS_BUILD_DIR)/unity.o: $(UNITY_DIR)/unity.c | $(TESTS_BUILD_DIR)
 	$(CC) -std=c11 -O1 -g3 -I$(UNITY_DIR) -c $< -o $@
 
+# inih: vendored third-party — mismo patrón que Unity (sin -Werror ni flags
+# estrictos del proyecto). Se linkea en tests de M4 desde Fase 2; la
+# integración en el binario procguard (sin ASAN) llega con Fase 7.
+$(TESTS_BUILD_DIR)/ini.o: src/common/inih/ini.c src/common/inih/ini.h | $(TESTS_BUILD_DIR)
+	$(CC) -std=c11 -O1 -g3 -fsanitize=address -fsanitize=undefined \
+	  -fno-omit-frame-pointer -c $< -o $@
+
 # Objetos de módulos del proyecto compilados bajo ASAN+UBSAN para reutilizar
 # entre binarios de test. Evita recompilar los mismos .c en cada test_X.
 $(TESTS_BUILD_DIR)/collector.o: src/collector/collector.c | $(TESTS_BUILD_DIR)

@@ -33,5 +33,11 @@ iterar. `make test` mantiene leak detection para verificación final.
 `unity.o` con regla separada, flags mínimas (`-std=c11 -O1 -g3`), sin
 heredar `$(CFLAGS)` del proyecto.
 
+**inih vendored también falla con `-Werror`.** Mismo tratamiento que Unity:
+regla `$(TESTS_BUILD_DIR)/ini.o` con flags mínimas + ASAN+UBSAN (se linkea
+en tests de M4). Para la integración en el binario `procguard` (Fase 7
+Slice 4), añadir una variante sin ASAN cuando main.c empiece a cargar el
+INI.
+
 **ASan + valgrind no conviven.** ASan reemplaza `malloc`, memcheck pierde
 su instrumentación. Workflow: `make clean && make debug && make valgrind`.
