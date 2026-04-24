@@ -22,7 +22,8 @@ TEST_UNIT_DIR  := tests/unit
 # Todo module source compilado bajo test lleva estas flags; los include dirs
 # cubren los headers cruzados que cualquier test podría consumir.
 TEST_INCLUDES := -I$(UNITY_DIR) -Isrc/common \
-                 -Isrc/collector -Isrc/metrics -Isrc/store -Isrc/ipc
+                 -Isrc/collector -Isrc/metrics -Isrc/store -Isrc/ipc \
+                 -Isrc/alert -Isrc/common/inih
 TEST_CFLAGS   := $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) $(TEST_INCLUDES)
 TEST_LDFLAGS  := $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
@@ -107,6 +108,9 @@ $(TESTS_BUILD_DIR)/store.o: src/store/store.c | $(TESTS_BUILD_DIR)
 $(TESTS_BUILD_DIR)/queue.o: src/ipc/queue.c | $(TESTS_BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) -c $< -o $@
 
+$(TESTS_BUILD_DIR)/alert_policy.o: src/alert/alert_policy.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/test_collector: $(TEST_UNIT_DIR)/test_collector.c \
 		$(TESTS_BUILD_DIR)/collector.o $(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
@@ -125,8 +129,16 @@ $(BUILD_DIR)/test_queues: $(TEST_UNIT_DIR)/test_queues.c \
 		$(TESTS_BUILD_DIR)/queue.o $(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+# test_alert_parser linkea alert_policy.o (lógica bajo prueba) + ini.o (vendor
+# inih, callback de parseo) + unity.o. Primer test de Slice 4a Fase 2.
+$(BUILD_DIR)/test_alert_parser: $(TEST_UNIT_DIR)/test_alert_parser.c \
+		$(TESTS_BUILD_DIR)/alert_policy.o $(TESTS_BUILD_DIR)/ini.o \
+		$(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
-             $(BUILD_DIR)/test_store $(BUILD_DIR)/test_queues
+             $(BUILD_DIR)/test_store $(BUILD_DIR)/test_queues \
+             $(BUILD_DIR)/test_alert_parser
 
 test: $(TEST_BINS)
 	@failed=0; \
