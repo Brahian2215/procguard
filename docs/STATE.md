@@ -2,121 +2,72 @@
 
 ## Estado actual
 
-Slice 3 cerrado. `make asan && make test && make lint-funclen && make valgrind`
-verdes. 28 tests totales (8 collector + 10 metrics + 10 store).
+Slice 4a cerrado (Fases 1 y 2). `make asan && make test && make lint-funclen &&
+make valgrind` verdes. **41 tests**: 8 collector + 10 metrics + 10 store +
+6 queues + 7 alert_parser.
 
 Módulos:
 - **M1 Collector** (`src/collector/`): scan de procfs con `vmrss_bytes` (statm),
   counters I/O (io), filtro opcional de kernel threads.
 - **M2 Sample Store** (`src/store/`): `init/insert/get_history/tick/destroy`
-  con buffer circular por `pg_proc_id_t` y período de gracia G=10 ciclos
-  (ADR-007). `pg_store_tick` libera entries vencidas vía swap-con-último.
-- **M3 Metrics** (`src/metrics/`): completo para métricas derivables.
-  `pg_metrics_cpu_percent` (función pura, clamp `[0, 100*ncpus]`, sentinel
-  `-1.0f`, ADR-006) y `pg_metrics_io_rates` (llena `pg_io_rates_t` con
-  rchar/wchar/read_bytes/write_bytes por segundo; sentinel por-counter ante
-  underflow aislado; sin clamp superior). RSS es pase directo de
-  `vmrss_bytes` sin función dedicada. Inyección explícita de hz/ncpus
-  (ADR-008).
-- **main.c** (integrador Slice 1/2, temporal): dos scans con `sleep(1)`,
-  store cableado (init → insert scan#1 → tick → insert scan#2 → destroy),
-  top-5 por CPU% a stdout. No consume aún tasas I/O — el integrador
-  visible lo hará M4.
+  con buffer circular por `pg_proc_id_t` y gracia G=10 (ADR-007).
+- **M3 Metrics** (`src/metrics/`): `cpu_percent` (ADR-006/008) e `io_rates`
+  (sentinel por-counter ante underflow aislado). RSS es pase directo de
+  `vmrss_bytes`.
+- **M4 IPC** (`src/ipc/queue.c`, Slice 4a F1): `pg_results_t`,
+  `pg_inotify_event_queue_t`, `pg_command_queue_t` — ring buffers
+  mutex-protegidos con drop-oldest. Slice 4 no instancia hilos; la infra
+  queda lista para cablear Slice 5/6.
+- **M4 Policy parser** (`src/alert/alert_policy.c`, Slice 4a F2): carga INI
+  (inih) a catálogo tipado `pg_policy_t[]` + `pg_global_config_t` +
+  `pg_security_config_t`. Validación multi-error con acumulador, reporte
+  fail-loud a stderr. ADRs 009-013 cubren state machine y syscalls
+  (pendiente implementación).
+- **main.c** (integrador temporal Slice 1/2): dos scans con `sleep(1)`,
+  store cableado, top-5 por CPU%. No consume tasas I/O ni carga INI — el
+  integrador real lo hará Slice 4b.
 
-## Roadmap restante
+## Roadmap
 
 | Slice | Objetivo | Estado |
 |---|---|---|
-| 2 | Extender M1 (statm, io, skip_kt) + M2 store + tick+gracia | ✅ cerrado |
-| 3 | Completar M3 Metrics (tasas I/O; red diferida como deuda) | ✅ cerrado |
-| 4 | M4 Alert & Governance (políticas estáticas, histéresis, cooldown, dry-run) | **Siguiente** |
-| 5 | Threading: hilos gobernanza + inotify, M5 Security (4 heurísticas) | Pendiente |
+| 2 | Extender M1 + M2 store + tick/gracia | ✅ |
+| 3 | Completar M3 (tasas I/O; red diferida) | ✅ |
+| 4a | M4 IPC queues + parser de políticas | ✅ |
+| 4b | M4 state machine (evaluate/validate/act), engine_gc, integración en main | **Siguiente** |
+| 5 | Threading real (hilos gobernanza+inotify) + M5 Security | Pendiente |
 | 6 | M6 TUI (ncurses, tercer hilo) | Pendiente |
 | 7 | M7 Report (JSON lines, snapshots, HTML) + acciones M4 reales | Pendiente |
 | 8 | Modo daemon, hardening, SIGHUP reload | Pendiente |
 
-Orden fijado por dependencias de datos: M1 → M2 → M3 → M4 → (M5‖M6) → M7.
-Cada slice cierra con `make asan && make test && make valgrind` verdes.
+Orden fijado por dependencias: M1 → M2 → M3 → M4 → (M5‖M6) → M7.
 
-## Próximos pasos (Slice 4)
+## Próximos pasos (Slice 4b)
 
-M4 Alert & Governance: parser inih de políticas estáticas (umbrales por
-métrica, con histéresis y cooldown), evaluación por proceso en el loop de
-gobernanza, revalidación de `(pid, starttime)` antes de actuar (ADR-005),
-modo dry-run (acción = log). M3 ya expone CPU% y tasas I/O como insumos;
-RSS se lee directo de `vmrss_bytes`.
-
-Antes de arrancar, leer `docs/plans/slice-4-concurrency.md` (modelo de
-tres hilos) — Slice 4 no introduce threading todavía, pero sus APIs deben
-ser thread-safe por diseño para el cableado del Slice 5.
-
-Crear `docs/plans/slice-4.md` con brainstorming previo.
+Implementar la state machine de alerta con los ADRs 009-013 ya registrados:
+- `pg_alert_state_t` por política×id con `persistence`/`hysteresis`/`cooldown`.
+- Pipeline `evaluate → validate → act` con lista efímera (ADR-010).
+- Whitelist dinámica `ppid == own_pid` en runtime (ADR-012).
+- `engine_gc` alineado con `store_tick` (ADR-013).
+- Syscalls (kill/setpriority) inyectadas vía struct para test (ADR-009).
+- Cablear main.c como orquestador: cargar INI, loop de N iteraciones,
+  aplicar `sample_buffer` del `[global]`.
 
 ## Deuda técnica
 
-- **Red por-proceso (correlación socket↔proceso).** PDF §4.2 prescribe:
-  leer la tabla global de sockets desde `/proc/net/tcp` + `/proc/net/udp`,
-  recorrer `/proc/[pid]/fd/` con `readlink()` identificando descriptores
-  socket (formato `socket:[inodo]`), y correlacionar inodos para mapear
-  conexiones ↔ PID. No requiere privilegios especiales (a diferencia de
-  leer `/proc/[pid]/net/dev` en un netns ajeno). Alimenta tres métricas
-  (`net_connections`, `net_bytes_rate`, `net_sockets`) y la heurística
-  M5 port_scan. Por costo computacional, PDF §4.2 define
-  `net_sample_divisor = 4` (correlación cada N ciclos, no cada ciclo).
-  Destino: **Slice 5** junto con M5 Security (consumidor natural).
+| Ítem | Motivo / nota | Destino |
+|---|---|---|
+| Red por-proceso (PDF §4.2: `/proc/net/tcp` + `/proc/[pid]/fd` readlink) | Alimenta `net_*` y heurística M5 port_scan. `net_sample_divisor=4` | Slice 5 con M5 |
+| Métricas PDF §5.3 pendientes: `mem_vsize`, `thread_count`, `fd_count`, `net_connections`, `net_bytes_rate`, `net_sockets` | Catálogo canónico (10); M3 cubre 3 | Varios (4b/5/6/7) |
+| Nota: `rchar/wchar_per_s` no son del catálogo PDF; M4 mapea `io_read_rate→read_bytes_per_s`, `io_write_rate→write_bytes_per_s` | Valor añadido interno | — |
+| Diferenciación de `errno` en M1 (ENOENT/ESRCH/EACCES silenciosos vs ENOMEM/EIO en log, PDF §6 Nivel 1) | Requiere canal de log; llega con M7 | Slice 7 o antes si M4 lo exige |
+| `sample_buffer=16` hardcoded en main.c (PDF default 120) | Alinear cuando main cargue `[global]` | Slice 4b |
+| `vmrss_bytes` desde statm (PDF prefiere `/status`) | `status` unifica `VmSize` + UID real/efectivo | Cuando entren `mem_vsize` o disguised_process (M5) |
+| Path fijo `/tmp/pg_test_proc` para fixtures | Migrar a `mkdtemp` cuando crezca el número de binarios con procfs | Cuando aparezca el tercero |
+| `make valgrind` requiere build sin ASAN (reset interno) | Los dos sanitizers no conviven | Target `valgrind-ci` cuando exista CI |
+| `/proc/[pid]/io` requiere root o mismo UID | Como usuario normal, counters en 0. No es bug | — |
+| Ring buffers duplicados en `queue.c` (inotify + command) | Tolerable a 2 tipos; refactor a macro si aparece un 3º | Cuando haya 3ª cola |
 
-- **Métricas del catálogo PDF §5.3 pendientes.** ProcGuard declara 10
-  métricas canónicas; M3 actual cubre 3. Pendientes con fuente y slice
-  objetivo:
-
-  | Métrica | Identificador | Fuente | Slice |
-  |---|---|---|---|
-  | Memoria virtual total | `mem_vsize` | `/proc/[pid]/status` VmSize | Slice 4 si una política lo requiere; si no, Slice 7 (snapshots forenses) |
-  | Número de hilos | `thread_count` | `/proc/[pid]/stat` campo 20 (`num_threads`) | Slice 6 (TUI) |
-  | File descriptors abiertos | `fd_count` | contar entradas en `/proc/[pid]/fd/` | Slice 7 (snapshots) |
-  | Conexiones de red | `net_connections` | correlación inodos (ver entrada anterior) | Slice 5 |
-  | Tasa de bytes de red | `net_bytes_rate` | correlación + `/proc/net/tcp` counters | Slice 5 |
-  | Sockets abiertos | `net_sockets` | filtrar `/proc/[pid]/fd/` por prefijo `socket:` | Slice 5 |
-
-  Nota: `rchar/wchar_per_s` **no** son identificadores del catálogo PDF.
-  Se exponen como valor añadido, pero M4 sólo mapea `io_read_rate` →
-  `read_bytes_per_s` e `io_write_rate` → `write_bytes_per_s` (bytes reales
-  a disco, no bytes lógicos con cache hits).
-
-- **Diferenciación de `errno` en M1 (PDF §6 Nivel 1).** La spec exige que
-  fallos `ENOENT`/`ESRCH`/`EACCES` se descarten silenciosamente (normales:
-  proceso terminado durante scan, permisos) y que `ENOMEM`/`EIO` se
-  registren en log. Actualmente `read_file()` en
-  [src/collector/collector.c:49](src/collector/collector.c#L49)
-  retorna `PG_ERR_IO` sin tocar `errno`; todos los errores son silenciados
-  por igual. Implementar requiere `#include <errno.h>`, propagación de
-  `errno` en el stack de helpers, y un canal de log (hoy no existe;
-  llegará con M7). Destino: **Slice 7** junto con M7 Report o antes si
-  M4 necesita observabilidad de fallos.
-
-- **`sample_buffer` hardcodeado a N=16** en el integrador. PDF §5.4 define
-  default 120. Alinear cuando el parser de config (M4) lea `[global]`.
-
-- **`vmrss_bytes` se lee de `/proc/[pid]/statm` (campo 2 × pagesize).**
-  PDF §4.1 prefiere `/proc/[pid]/status` (campo `VmRSS`). Equivalentes
-  semánticamente, pero `status` unifica la lectura de `VmSize` y UID
-  real/efectivo (necesario para M5 disguised_process). Migrar cuando
-  `mem_vsize` o la heurística de UID entren en scope.
-
-- Patrón "compilar fuentes inline en cada test binary" no escala. Con
-  Slice 4 (M4 añadirá `test_alert`) el dolor crece. Introducir
-  `build/tests/` con objetos ASAN reutilizables **al inicio del Slice 4**.
-
-- Path fijo `/tmp/pg_test_proc` para fixtures. Migrar a `mkdtemp` cuando
-  haya más de un binario con fixtures de procfs.
-
-- `make valgrind` requiere build sin ASAN (los dos sanitizers no conviven):
-  `make clean && make debug && make valgrind`. Considerar target
-  `valgrind-ci` que haga el reset internamente cuando exista CI.
-
-- `/proc/[pid]/io` requiere root o mismo UID; corriendo como usuario
-  normal la mayoría de procesos tendrán los 4 counters en 0. No es bug.
-
-- Sección 5.11 del PDF (concurrencia detallada: tamaños exactos de colas,
-  protocolo de mutex) leerse antes de Slice 4 — resumen en
-  `docs/plans/slice-4-concurrency.md`.
+Sección 5.11 del PDF (concurrencia) resumida en
+[plans/slice-4-concurrency.md](plans/slice-4-concurrency.md) — leer antes de
+Slice 5. Planes cerrados (slice-2, slice-3) en `plans/archive/`.
