@@ -111,6 +111,9 @@ $(TESTS_BUILD_DIR)/queue.o: src/ipc/queue.c | $(TESTS_BUILD_DIR)
 $(TESTS_BUILD_DIR)/alert_policy.o: src/alert/alert_policy.c | $(TESTS_BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) -c $< -o $@
 
+$(TESTS_BUILD_DIR)/alert_state.o: src/alert/alert_state.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/test_collector: $(TEST_UNIT_DIR)/test_collector.c \
 		$(TESTS_BUILD_DIR)/collector.o $(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
@@ -136,9 +139,16 @@ $(BUILD_DIR)/test_alert_parser: $(TEST_UNIT_DIR)/test_alert_parser.c \
 		$(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+# test_alert_state linkea store.o porque los tests de gc construyen un
+# pg_store_t real para validar el chequeo de presencia (Slice 4b Fase 3).
+$(BUILD_DIR)/test_alert_state: $(TEST_UNIT_DIR)/test_alert_state.c \
+		$(TESTS_BUILD_DIR)/alert_state.o $(TESTS_BUILD_DIR)/store.o \
+		$(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
              $(BUILD_DIR)/test_store $(BUILD_DIR)/test_queues \
-             $(BUILD_DIR)/test_alert_parser
+             $(BUILD_DIR)/test_alert_parser $(BUILD_DIR)/test_alert_state
 
 test: $(TEST_BINS)
 	@failed=0; \
