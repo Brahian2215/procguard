@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProcGuard — Sustentación</title>
+<style>
+  :root{
+    --green:#1b5e3f; --green2:#2e8b63; --ink:#1a2330; --muted:#5b6b7a;
+    --bg:#f7f9f8; --card:#ffffff; --line:#dce5e0; --accent:#c2410c;
+    --code-bg:#0f1b16; --code-ink:#d7f0e2;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:"Segoe UI",system-ui,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  .slide{
+    display:none;min-height:100vh;padding:6vh 8vw;flex-direction:column;justify-content:center;
+  }
+  .slide.active{display:flex;animation:fade .25s ease}
+  @keyframes fade{from{opacity:.4}to{opacity:1}}
+  h1{font-size:4.2vw;line-height:1.1;color:var(--green);margin-bottom:1.2rem}
+  h2{font-size:2.9vw;color:var(--green);margin-bottom:1.6rem;border-bottom:3px solid var(--green2);padding-bottom:.5rem;display:inline-block}
+  h3{font-size:1.7vw;color:var(--ink);margin:.4rem 0}
+  p,li{font-size:1.7vw;line-height:1.5;color:var(--ink)}
+  .sub{font-size:2vw;color:var(--muted);font-style:italic;margin-bottom:.6rem}
+  .meta{font-size:1.4vw;color:var(--muted);margin-top:2rem;line-height:1.7}
+  ul{margin:.4rem 0 0 1.6em}
+  li{margin:.55rem 0}
+  .lead{font-size:1.9vw}
+  .muted{color:var(--muted)}
+  .accent{color:var(--accent);font-weight:700}
+  .green{color:var(--green);font-weight:700}
+  /* pills / flow */
+  .flow{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem}
+  .pill{background:var(--green);color:#fff;padding:.5rem 1rem;border-radius:999px;font-size:1.5vw;font-weight:600}
+  .pill.soft{background:#e7f1ec;color:var(--green)}
+  .arrow{color:var(--green2);font-size:1.8vw;align-self:center;font-weight:700}
+  /* grid */
+  .grid{display:grid;gap:1rem;margin-top:1rem}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.1rem 1.3rem;box-shadow:0 2px 10px rgba(20,40,30,.04)}
+  .card h3{color:var(--green);font-size:1.55vw;margin-bottom:.3rem}
+  .card p{font-size:1.35vw;color:var(--muted)}
+  .card.done{border-left:6px solid var(--green2)}
+  .card.todo{border-left:6px solid #c9cfcc;opacity:.7}
+  .card.todo h3{color:var(--muted)}
+  .tag{display:inline-block;font-size:1.1vw;font-weight:700;border-radius:6px;padding:.1rem .5rem;margin-left:.4rem}
+  .tag.ok{background:#dff3e8;color:var(--green)}
+  .tag.wip{background:#fdeede;color:var(--accent)}
+  /* code box */
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:12px;padding:1.1rem 1.3rem;font-size:1.2vw;line-height:1.5;overflow:auto;margin-top:1rem;font-family:"JetBrains Mono",Consolas,monospace}
+  .k{color:#8be0b4}.w{color:#ffd479}.r{color:#ff9b8a}.d{color:#9fb4c9}
+  table{border-collapse:collapse;margin-top:1rem;width:100%}
+  td,th{border:1px solid var(--line);padding:.6rem .9rem;font-size:1.4vw;text-align:left}
+  th{background:var(--green);color:#fff}
+  .big{font-size:2.4vw;text-align:center;margin:1rem 0}
+  .demo-banner{font-size:5vw;color:var(--accent);text-align:center;font-weight:800;letter-spacing:.04em}
+  .stat{display:flex;gap:2.5vw;flex-wrap:wrap;margin-top:1.5rem}
+  .stat div{text-align:center}
+  .stat b{display:block;font-size:3.4vw;color:var(--green)}
+  .stat span{font-size:1.3vw;color:var(--muted)}
+  /* chrome */
+  #bar{position:fixed;top:0;left:0;height:5px;background:var(--green2);width:0;transition:width .2s;z-index:50}
+  #count{position:fixed;bottom:14px;right:20px;font-size:1.1vw;color:var(--muted);z-index:50}
+  #hint{position:fixed;bottom:14px;left:20px;font-size:1vw;color:var(--line);z-index:50}
+  @media print{
+    .slide{display:flex!important;min-height:auto;page-break-after:always;padding:5vh 6vw;border-bottom:1px solid #ccc}
+    #bar,#count,#hint{display:none}
+    h1{font-size:30px}h2{font-size:24px}p,li,.pill,td,th{font-size:14px!important}pre{font-size:11px}
+  }
+</style>
+</head>
+<body>
+<div id="bar"></div>
+
+<!-- 1 -->
+<section class="slide active">
+  <h1>ProcGuard</h1>
+  <p class="sub">Sistema de Gobernanza Activa de Procesos para Linux</p>
+  <p class="lead">Del monitoreo <span class="muted">pasivo</span> a la gobernanza <span class="green">activa</span>: observación → detección → decisión → acción → registro.</p>
+  <p class="meta">Brahian Ocampo Garcia &nbsp;·&nbsp; Sistemas Operativos 2026-1<br>Universidad de Antioquia — Facultad de Ingeniería</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2>El problema</h2>
+  <p class="lead muted">Las herramientas actuales solo <b>observan</b>.</p>
+  <ul>
+    <li><b>Observación pasiva:</b> <code>top</code>/<code>htop</code> muestran métricas, desconectadas de la acción.</li>
+    <li><b>Acción manual:</b> el admin identifica, decide y ejecuta a mano <code>kill</code>, <code>renice</code>, <code>taskset</code> → lento, propenso a error, sin trazabilidad.</li>
+    <li><b>Sin seguridad:</b> un proceso que escanea puertos o se camufla pasa desapercibido.</li>
+  </ul>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2>La propuesta</h2>
+  <p class="lead">Cerrar el ciclo completo, gobernado por <span class="green">políticas declarativas</span> (archivo INI):</p>
+  <div class="flow">
+    <span class="pill">Observación</span><span class="arrow">→</span>
+    <span class="pill">Detección</span><span class="arrow">→</span>
+    <span class="pill">Decisión</span><span class="arrow">→</span>
+    <span class="pill">Acción</span><span class="arrow">→</span>
+    <span class="pill">Registro</span>
+  </div>
+  <p style="margin-top:1.6rem">…con <span class="accent">protecciones multinivel</span> contra daño autoinfligido. El administrador define umbrales, acciones y sensibilidad.</p>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2>Arquitectura: 7 módulos</h2>
+  <div class="grid g3">
+    <div class="card done"><h3>M1 · Collector <span class="tag ok">hecho</span></h3><p>Lee procfs → muestras crudas. id (pid, starttime).</p></div>
+    <div class="card done"><h3>M2 · Sample Store <span class="tag ok">hecho</span></h3><p>Buffer circular por proceso + gracia G=10.</p></div>
+    <div class="card done"><h3>M3 · Metrics <span class="tag ok">hecho</span></h3><p>CPU%, RSS, tasas I/O. Funciones puras.</p></div>
+    <div class="card done"><h3>M4 · Alert &amp; Governance <span class="tag ok">hecho</span></h3><p><b>El núcleo.</b> Políticas, escalamiento, protecciones, cage.</p></div>
+    <div class="card todo"><h3>M5 · Security <span class="tag wip">diseñado</span></h3><p>4 heurísticas (port scan, camuflados…).</p></div>
+    <div class="card todo"><h3>M6 · TUI <span class="tag wip">diseñado</span></h3><p>ncurses, hilo dedicado.</p></div>
+    <div class="card todo"><h3>M7 · Report <span class="tag wip">diseñado</span></h3><p>JSON lines + snapshots + HTML.</p></div>
+    <div class="card" style="display:flex;align-items:center;justify-content:center"><p class="green" style="font-size:1.4vw"><b>M1→M2→M3→M4</b><br>orden por dependencias</p></div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2>Marco técnico</h2>
+  <div class="grid g3">
+    <div class="card"><h3>procfs</h3><p><code>/proc/[pid]/</code> stat, statm, io, exe. Fuente primaria de datos.</p></div>
+    <div class="card"><h3>cgroups v2</h3><p>Confinar recursos (<code>cpu.max</code>) en subárbol propio, mínimo privilegio.</p></div>
+    <div class="card"><h3>(pid, starttime)</h3><p>Identidad única contra el reciclaje de PIDs del kernel.</p></div>
+  </div>
+  <p style="margin-top:1.4rem">Para <b>actuar</b>: señales POSIX (SIGSTOP/SIGKILL), <code>setpriority()</code>, y cgroups v2. <span class="muted">CPU% se deriva entre dos muestras con <code>CLOCK_MONOTONIC</code>.</span></p>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2>Ciclo de gobernanza (10 pasos)</h2>
+  <div class="flow">
+    <span class="pill soft">1 · Consumir colas</span>
+    <span class="pill soft">2 · Recolectar</span>
+    <span class="pill soft">3 · Calcular</span>
+    <span class="pill soft">4 · Eval. rendimiento</span>
+    <span class="pill soft">5 · Eval. seguridad</span>
+    <span class="pill">6 · Validar</span>
+    <span class="pill">7 · Actuar</span>
+    <span class="pill soft">8 · Capturar</span>
+    <span class="pill soft">9 · Registrar</span>
+    <span class="pill soft">10 · Visualizar</span>
+  </div>
+  <p style="margin-top:1.6rem"><b>Best-effort:</b> si una etapa falla (lectura corrupta, NaN), se salta y se registra; el ciclo siguiente arranca limpio. <span class="muted">Resiliencia en 3 niveles.</span></p>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2>El motor de gobernanza (M4)</h2>
+  <p class="lead">Tres mecanismos contra <span class="accent">falsos positivos</span>:</p>
+  <div class="grid g3">
+    <div class="card"><h3>Persistencia</h3><p>La alerta solo se activa si el umbral se supera durante N muestras seguidas.</p></div>
+    <div class="card"><h3>Histéresis</h3><p>Para desactivar, la métrica baja de un 2º umbral durante M muestras.</p></div>
+    <div class="card"><h3>Cooldown</h3><p>Enfriamiento entre acciones antes de escalar.</p></div>
+  </div>
+  <p style="margin-top:1.4rem"><b>Escalamiento progresivo:</b></p>
+  <div class="flow">
+    <span class="pill">warn</span><span class="arrow">→</span>
+    <span class="pill">renice</span><span class="arrow">→</span>
+    <span class="pill">cage</span><span class="arrow">→</span>
+    <span class="pill">stop</span><span class="arrow">→</span>
+    <span class="pill">kill</span>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2>Protección del sistema (§7)</h2>
+  <p class="lead muted">Las protecciones no limitan la <b>detección</b>, solo la <b>acción</b> automática.</p>
+  <div class="grid g3">
+    <div class="card"><h3>Dry-run</h3><p>Activo por defecto. El admin lo apaga explícitamente.</p></div>
+    <div class="card"><h3>Whitelist inmutable</h3><p>Nunca toca PID 1, sí-mismo, hijos, kernel ni servicios protegidos.</p></div>
+    <div class="card"><h3>Techo de acciones</h3><p>Máx. kills/min y procesos confinados → evita cascadas.</p></div>
+    <div class="card"><h3>Reválida (pid, starttime)</h3><p>Justo antes del syscall: no actúa sobre un PID reciclado.</p></div>
+    <div class="card"><h3>Cordura 5s</h3><p>No mata por un pico instantáneo: exige alerta sostenida.</p></div>
+    <div class="card"><h3>Resiliencia del ciclo</h3><p>Un fallo parcial no tumba el sistema.</p></div>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <p class="demo-banner">▶ DEMO EN VIVO</p>
+  <p class="big muted"><code>bash demo/demo.sh</code> — gobierna un CPU-hog real en dry-run</p>
+  <pre><span class="d">[alert] pid=… level=0 action=</span><span class="w">WARN</span><span class="d">   state=dry_run</span>
+<span class="d">[alert] pid=… level=1 action=</span><span class="w">RENICE</span><span class="d"> state=dry_run</span>
+<span class="d">[alert] pid=… level=2 action=</span><span class="w">CAGE</span><span class="d">   state=dry_run</span>
+<span class="d">[alert] pid=… level=3 action=</span><span class="r">STOP</span><span class="d">   state=</span><span class="r">sanity</span>   ← retenido por la cordura 5s
+<span class="d">[alert] pid=… level=3 action=</span><span class="r">STOP</span><span class="d">   state=dry_run</span>  ← se libera tras 5s
+<span class="d">[alert] pid=… level=4 action=</span><span class="r">KILL</span><span class="d">   state=dry_run</span></pre>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2>Rigor de ingeniería</h2>
+  <div class="stat">
+    <div><b>111</b><span>tests unitarios</span></div>
+    <div><b>0</b><span>fugas (valgrind)</span></div>
+    <div><b>18</b><span>decisiones (ADRs)</span></div>
+    <div><b>≤50</b><span>líneas/función</span></div>
+  </div>
+  <ul style="margin-top:1.6rem">
+    <li><b>TDD estricto:</b> test que falla → implementación mínima → verde.</li>
+    <li><b>AddressSanitizer + UBSan</b> en cada test; <b>valgrind</b> sin fugas.</li>
+    <li><b>Inyección de dependencias:</b> syscalls destructivas y backend de cgroups como punteros → se testea sin root ni efectos reales.</li>
+  </ul>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <h2>Decisiones de arquitectura (ADRs)</h2>
+  <p class="lead muted">18 decisiones donde dos alternativas razonables competían. Ejemplos:</p>
+  <div class="grid g2">
+    <div class="card"><h3>Acción indisponible → avanza</h3><p>Si <code>cage</code> no está, el escalamiento <b>avanza</b> en vez de atascarse → siempre puede llegar a stop/kill.</p></div>
+    <div class="card"><h3>Guard TOCTOU en <code>act()</code></h3><p>La reválida contra PID reciclado va <b>justo antes</b> del syscall, no antes: ahí está la ventana real.</p></div>
+    <div class="card"><h3>Syscalls inyectadas</h3><p>Punteros a <code>kill</code>/<code>setpriority</code>/cgroups → tests deterministas sin víctimas reales.</p></div>
+    <div class="card"><h3>Identidad (pid, starttime)</h3><p>El PID solo no basta: el kernel los recicla.</p></div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <h2>Estado del proyecto</h2>
+  <table>
+    <tr><th>Completo y probado</th><th>Diseñado / en curso</th></tr>
+    <tr>
+      <td>M1 Collector · M2 Store · M3 Metrics</td>
+      <td>M5 Security (4 heurísticas)</td>
+    </tr>
+    <tr>
+      <td>M4 Alert &amp; Governance (state machine, escalamiento, 6 protecciones)</td>
+      <td>M6 TUI (ncurses) · M7 Report (JSON+HTML)</td>
+    </tr>
+    <tr>
+      <td><b>cage</b> real (cgroups v2)</td>
+      <td>Threading 3 hilos (bajo <code>make tsan</code>) · daemon</td>
+    </tr>
+    <tr>
+      <td>Binario funcional · 111 tests · valgrind limpio</td>
+      <td>Experimento §10 (diseño factorial cerrado)</td>
+    </tr>
+  </table>
+  <p class="meta">Roadmap y deuda técnica en <code>docs/STATE.md</code> · 18 ADRs en <code>docs/DECISIONS.md</code></p>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <h2>Aprendizajes</h2>
+  <ul>
+    <li>Programación de sistemas real: <b>procfs, cgroups v2, señales POSIX, pthreads</b>.</li>
+    <li>El reciclaje de PIDs y cómo identificar procesos de forma robusta.</li>
+    <li>Cálculo de métricas derivadas entre muestras (CPU% con jiffies y <code>CLOCK_MONOTONIC</code>).</li>
+    <li>Diseño de un sistema <b>resiliente</b> que no se cae por fallos parciales.</li>
+    <li>Disciplina de ingeniería: TDD, sanitizers, decisiones documentadas, scope discipline.</li>
+  </ul>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <h1>Gracias</h1>
+  <p class="lead">El núcleo de ProcGuard <span class="green">funciona, está probado</span> y demuestra el ciclo completo de gobernanza activa.</p>
+  <p class="big accent">¿Preguntas?</p>
+  <p class="meta">ProcGuard · Brahian Ocampo Garcia · Sistemas Operativos 2026-1 · U. de Antioquia</p>
+</section>
+
+<div id="count"></div>
+<div id="hint">← → para navegar · F11 pantalla completa</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=0;
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('active',k===i));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+  }
+  function next(){show(i+1)} function prev(){show(i-1)}
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight',' ','PageDown'].includes(e.key)){e.preventDefault();next()}
+    else if(['ArrowLeft','PageUp'].includes(e.key)){e.preventDefault();prev()}
+    else if(e.key==='Home'){show(0)} else if(e.key==='End'){show(slides.length-1)}
+  });
+  document.addEventListener('click',e=>{ if(e.clientX < window.innerWidth*0.25) prev(); else next(); });
+  show(0);
+</script>
+</body>
+</html>
