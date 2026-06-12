@@ -184,7 +184,25 @@ static int read_proc_io(const char *proc_base, const char *pid_str,
     return PG_OK;
 }
 
-/* Popula sample con stat (mandatorio), statm e io (best-effort aditivos).
+/* readlink(/proc/[pid]/exe) → sample->exe_path. Best-effort: kernel thread,
+ * proceso muerto o permiso denegado dejan exe_path="" (ADR-016). readlink no
+ * null-termina; lo hacemos manualmente. */
+static void read_proc_exe(const char *proc_base, const char *pid_str,
+                          pg_raw_sample_t *sample)
+{
+    char path[PG_PATH_MAX];
+    int written = snprintf(path, sizeof(path), "%s/%s/exe", proc_base, pid_str);
+    if (written < 0 || (size_t)written >= sizeof(path)) {
+        return;
+    }
+    ssize_t len = readlink(path, sample->exe_path,
+                           sizeof(sample->exe_path) - 1);
+    if (len > 0) {
+        sample->exe_path[len] = '\0';   /* trunca a PG_EXE_MAX-1 si más largo */
+    }
+}
+
+/* Popula sample con stat (mandatorio), statm/io/exe (best-effort aditivos).
  * Retorna PG_OK si stat parseó; error si stat falló (el pid se salta). */
 static int populate_sample(const char *proc_base, const char *pid_str,
                            pg_raw_sample_t *sample)
@@ -195,6 +213,7 @@ static int populate_sample(const char *proc_base, const char *pid_str,
     }
     (void)read_proc_statm(proc_base, pid_str, sample);
     (void)read_proc_io(proc_base, pid_str, sample);
+    read_proc_exe(proc_base, pid_str, sample);
     return PG_OK;
 }
 
@@ -281,6 +300,27 @@ int pg_collector_scan(pg_collector_t *col,
 
     *out = arr;
     *out_count = n;
+    return PG_OK;
+}
+
+int pg_collector_read_starttime(const char *proc_base, pid_t pid,
+                                unsigned long long *out)
+{
+    if (proc_base == NULL || out == NULL) {
+        return PG_ERR_PARSE;
+    }
+    char pid_str[32];
+    int w = snprintf(pid_str, sizeof(pid_str), "%d", (int)pid);
+    if (w < 0 || (size_t)w >= sizeof(pid_str)) {
+        return PG_ERR_PARSE;
+    }
+    pg_raw_sample_t tmp;
+    memset(&tmp, 0, sizeof(tmp));
+    int rc = read_proc_stat(proc_base, pid_str, &tmp);  /* IO si no existe */
+    if (rc != PG_OK) {
+        return rc;
+    }
+    *out = tmp.id.starttime;
     return PG_OK;
 }
 

@@ -299,6 +299,64 @@ static void test_kernel_thread_filter(void)
     pg_collector_destroy(col);
 }
 
+/* Crea el symlink /tmp/pg_test_proc/<pid>/exe → target (Fase 5a, ADR-016). */
+static void write_exe_symlink(int pid, const char *target)
+{
+    char path[192];
+    snprintf(path, sizeof(path), TEST_PROC_BASE "/%d/exe", pid);
+    symlink(target, path);
+}
+
+static void test_exe_path_resolved(void)
+{
+    write_exe_symlink(100, "/usr/bin/bash");
+
+    pg_collector_t *col = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
+    pg_raw_sample_t *out = NULL;
+    size_t n = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_scan(col, &out, &n));
+
+    const pg_raw_sample_t *s = find_sample(out, n, 100);
+    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_EQUAL_STRING("/usr/bin/bash", s->exe_path);
+
+    free(out);
+    pg_collector_destroy(col);
+}
+
+static void test_exe_empty_when_no_symlink(void)
+{
+    /* pid 200 no tiene symlink exe → kernel thread / muerto → "". */
+    pg_collector_t *col = NULL;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_init(&col, TEST_PROC_BASE, false));
+    pg_raw_sample_t *out = NULL;
+    size_t n = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK, pg_collector_scan(col, &out, &n));
+
+    const pg_raw_sample_t *s = find_sample(out, n, 200);
+    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_EQUAL_STRING("", s->exe_path);
+
+    free(out);
+    pg_collector_destroy(col);
+}
+
+static void test_read_starttime_matches(void)
+{
+    unsigned long long st = 0;
+    TEST_ASSERT_EQUAL_INT(PG_OK,
+        pg_collector_read_starttime(TEST_PROC_BASE, 100, &st));
+    TEST_ASSERT_EQUAL_UINT64(12345, st);
+}
+
+static void test_read_starttime_missing_pid_io_err(void)
+{
+    unsigned long long st = 999;
+    TEST_ASSERT_EQUAL_INT(PG_ERR_IO,
+        pg_collector_read_starttime(TEST_PROC_BASE, 99999, &st));
+}
+
 /* --- Runner -------------------------------------------------------------- */
 
 int main(void)
@@ -312,5 +370,9 @@ int main(void)
     RUN_TEST(test_vmrss_populated_and_absent);
     RUN_TEST(test_io_counters_populated_and_absent);
     RUN_TEST(test_kernel_thread_filter);
+    RUN_TEST(test_exe_path_resolved);
+    RUN_TEST(test_exe_empty_when_no_symlink);
+    RUN_TEST(test_read_starttime_matches);
+    RUN_TEST(test_read_starttime_missing_pid_io_err);
     return UNITY_END();
 }

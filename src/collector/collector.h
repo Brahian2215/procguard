@@ -40,6 +40,20 @@ int pg_collector_scan(pg_collector_t *col,
                       pg_raw_sample_t **out, size_t *out_count);
 
 /*
+ * Re-lee el starttime (campo 22 de /proc/[pid]/stat) de un único pid. Usado
+ * por M4 act() para el guard TOCTOU (ADR-016): revalidar (pid,starttime)
+ * justo antes de un syscall destructivo. No requiere un pg_collector_t (es
+ * stateless); proc_base se pasa explícito.
+ *
+ * Retorna:
+ *   PG_OK         *out cargado con el starttime actual.
+ *   PG_ERR_IO     el pid no existe / stat no legible (proceso desapareció).
+ *   PG_ERR_PARSE  proc_base u out == NULL, o stat malformado.
+ */
+int pg_collector_read_starttime(const char *proc_base, pid_t pid,
+                                unsigned long long *out);
+
+/*
  * Libera recursos del colector. Seguro llamar con col == NULL (no-op).
  */
 void pg_collector_destroy(pg_collector_t *col);

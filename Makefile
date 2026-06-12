@@ -6,6 +6,11 @@ CFLAGS_DEBUG := -g3 -O0 -DDEBUG
 CFLAGS_RELEASE := -O2 -DNDEBUG
 CFLAGS_ASAN := -g3 -O1 -fsanitize=address -fsanitize=undefined \
                -fno-omit-frame-pointer
+# TSan: detecta data races; ASan NO lo hace. Mutuamente excluyente con ASan
+# (igual que valgrind). Hoy procguard es monohilo, así que este target solo
+# prueba que las flags compilan limpio; los tests con hilos reales (stress de
+# colas con pthread_create) llegan en Slice 5 y se ejecutan bajo este target.
+CFLAGS_TSAN := -g3 -O1 -fsanitize=thread -fno-omit-frame-pointer
 CFLAGS_TEST := -g3 -O1
 
 LDFLAGS := -pthread
@@ -27,7 +32,7 @@ TEST_INCLUDES := -I$(UNITY_DIR) -Isrc/common \
 TEST_CFLAGS   := $(CFLAGS) $(CFLAGS_TEST) $(CFLAGS_ASAN) $(TEST_INCLUDES)
 TEST_LDFLAGS  := $(LDFLAGS) -fsanitize=address -fsanitize=undefined
 
-.PHONY: all debug release asan test test-quick valgrind clean format lint lint-funclen help
+.PHONY: all debug release asan tsan test test-quick valgrind clean format lint lint-funclen help
 
 all: debug
 
@@ -41,6 +46,13 @@ asan: CFLAGS += $(CFLAGS_ASAN)
 asan: LDFLAGS += -fsanitize=address -fsanitize=undefined
 asan: $(BUILD_DIR)/procguard
 
+# tsan: build del binario bajo ThreadSanitizer. Scaffold para Slice 5 — cuando
+# existan los tres hilos reales, las variantes de test con hilos correrán aquí.
+# Workflow (TSan y ASan no conviven): make clean && make tsan
+tsan: CFLAGS += $(CFLAGS_TSAN)
+tsan: LDFLAGS += -fsanitize=thread
+tsan: $(BUILD_DIR)/procguard
+
 clean:
 	rm -rf $(BUILD_DIR)
 
@@ -52,7 +64,7 @@ lint:
 	find $(SRC_DIR) -name '*.c' | xargs -I{} clang-tidy {} -- $(CFLAGS)
 
 help:
-	@echo "Build:  debug, release, asan"
+	@echo "Build:  debug, release, asan, tsan (ThreadSanitizer, Slice 5+)"
 	@echo "Test:   test (full + leak detection), test-quick (no leak detect, fast iteration)"
 	@echo "Lint:   format, lint, lint-funclen (flag funciones >50 lineas)"
 	@echo "Other:  valgrind, clean"
@@ -114,6 +126,21 @@ $(TESTS_BUILD_DIR)/alert_policy.o: src/alert/alert_policy.c | $(TESTS_BUILD_DIR)
 $(TESTS_BUILD_DIR)/alert_state.o: src/alert/alert_state.c | $(TESTS_BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) -c $< -o $@
 
+$(TESTS_BUILD_DIR)/alert.o: src/alert/alert.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
+$(TESTS_BUILD_DIR)/alert_eval.o: src/alert/alert_eval.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
+$(TESTS_BUILD_DIR)/alert_validate.o: src/alert/alert_validate.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
+$(TESTS_BUILD_DIR)/alert_act.o: src/alert/alert_act.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
+$(TESTS_BUILD_DIR)/alert_cage.o: src/alert/alert_cage.c | $(TESTS_BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/test_collector: $(TEST_UNIT_DIR)/test_collector.c \
 		$(TESTS_BUILD_DIR)/collector.o $(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
@@ -146,9 +173,25 @@ $(BUILD_DIR)/test_alert_state: $(TEST_UNIT_DIR)/test_alert_state.c \
 		$(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
 
+# test_alert_engine: engine init/destroy + state machine evaluate (Slice 4b
+# Fase 4) + validate (Fase 5b) + act (Fase 6). Linkea alert + alert_eval +
+# alert_validate + alert_act + alert_policy (catalog) + alert_state (registry)
+# + store/metrics (deltas) + collector (read_starttime, guard TOCTOU) + ini +
+# unity.
+$(BUILD_DIR)/test_alert_engine: $(TEST_UNIT_DIR)/test_alert_engine.c \
+		$(TESTS_BUILD_DIR)/alert.o $(TESTS_BUILD_DIR)/alert_eval.o \
+		$(TESTS_BUILD_DIR)/alert_validate.o $(TESTS_BUILD_DIR)/alert_act.o \
+		$(TESTS_BUILD_DIR)/alert_cage.o \
+		$(TESTS_BUILD_DIR)/alert_policy.o $(TESTS_BUILD_DIR)/alert_state.o \
+		$(TESTS_BUILD_DIR)/store.o $(TESTS_BUILD_DIR)/metrics.o \
+		$(TESTS_BUILD_DIR)/collector.o \
+		$(TESTS_BUILD_DIR)/ini.o $(TESTS_BUILD_DIR)/unity.o | $(BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) $^ -o $@ $(TEST_LDFLAGS)
+
 TEST_BINS := $(BUILD_DIR)/test_collector $(BUILD_DIR)/test_metrics \
              $(BUILD_DIR)/test_store $(BUILD_DIR)/test_queues \
-             $(BUILD_DIR)/test_alert_parser $(BUILD_DIR)/test_alert_state
+             $(BUILD_DIR)/test_alert_parser $(BUILD_DIR)/test_alert_state \
+             $(BUILD_DIR)/test_alert_engine
 
 test: $(TEST_BINS)
 	@failed=0; \
@@ -173,7 +216,17 @@ test-quick: $(TEST_BINS)
 valgrind: $(BUILD_DIR)/procguard
 	valgrind --leak-check=full --error-exitcode=1 $(BUILD_DIR)/procguard
 
+# procguard: orquestador de gobernanza (Slice 4b Fase 7). Linkea M1/M2/M3 +
+# el engine M4 completo (alert + eval + validate + act + policy + state) +
+# inih (vendored; compila limpio bajo las flags estrictas, verificado). Un solo
+# gcc: las fuentes del proyecto y inih comparten las flags del target activo
+# (debug/release/asan/tsan), así los objetos casan al linkear bajo sanitizers.
 $(BUILD_DIR)/procguard: src/collector/collector.c src/metrics/metrics.c \
-		src/store/store.c src/main.c | $(BUILD_DIR)
+		src/store/store.c \
+		src/alert/alert.c src/alert/alert_eval.c src/alert/alert_validate.c \
+		src/alert/alert_act.c src/alert/alert_cage.c \
+		src/alert/alert_policy.c src/alert/alert_state.c \
+		src/common/inih/ini.c src/main.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Isrc/common -Isrc/collector -Isrc/metrics -Isrc/store \
+	  -Isrc/alert -Isrc/common/inih \
 	  $^ -o $@ $(LDFLAGS) $(LDLIBS)

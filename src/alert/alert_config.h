@@ -14,6 +14,7 @@ typedef struct {
     unsigned int sample_buffer;         /* default 120 */
     unsigned int max_kills_per_minute;  /* default 3   */
     unsigned int max_caged_processes;   /* default 10  */
+    unsigned int cage_cpu_percent;      /* default 50 — cpu.max del cage (4c) */
     bool         dry_run;               /* default true */
 } pg_global_config_t;
 

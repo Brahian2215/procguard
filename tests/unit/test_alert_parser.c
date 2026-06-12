@@ -46,6 +46,7 @@ static void test_happy_ini_parses_all_fields(void)
         "sample_buffer = 120\n"
         "max_kills_per_minute = 3\n"
         "max_caged_processes = 10\n"
+        "cage_cpu_percent = 25\n"
         "dry_run = true\n"
         "\n"
         "[policy:cpu_hog]\n"
@@ -90,6 +91,7 @@ static void test_happy_ini_parses_all_fields(void)
     TEST_ASSERT_EQUAL_UINT(120, g.sample_buffer);
     TEST_ASSERT_EQUAL_UINT(3,   g.max_kills_per_minute);
     TEST_ASSERT_EQUAL_UINT(10,  g.max_caged_processes);
+    TEST_ASSERT_EQUAL_UINT(25,  g.cage_cpu_percent);
     TEST_ASSERT_TRUE(g.dry_run);
 
     pg_policy_catalog_destroy(pols, n_pols);
@@ -214,6 +216,7 @@ static void test_global_defaults(void)
     TEST_ASSERT_EQUAL_UINT(120, g.sample_buffer);
     TEST_ASSERT_EQUAL_UINT(3,   g.max_kills_per_minute);
     TEST_ASSERT_EQUAL_UINT(10,  g.max_caged_processes);
+    TEST_ASSERT_EQUAL_UINT(50,  g.cage_cpu_percent);   /* default Slice 4c */
     TEST_ASSERT_TRUE(g.dry_run);
 
     pg_policy_catalog_destroy(pols, n_pols);

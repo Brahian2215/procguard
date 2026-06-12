@@ -280,6 +280,9 @@ static void handle_global(parse_state_t *st, const char *name, const char *value
     } else if (strcmp(name, "max_caged_processes") == 0) {
         if (parse_uint_strict(value, &st->global->max_caged_processes) != 0)
             push_errorf(st, "[global] max_caged_processes: invalid uint '%s'", value);
+    } else if (strcmp(name, "cage_cpu_percent") == 0) {
+        if (parse_uint_strict(value, &st->global->cage_cpu_percent) != 0)
+            push_errorf(st, "[global] cage_cpu_percent: invalid uint '%s'", value);
     } else if (strcmp(name, "dry_run") == 0) {
         if (parse_bool_strict(value, &st->global->dry_run) != 0)
             push_errorf(st, "[global] dry_run: invalid bool '%s'", value);
@@ -516,6 +519,7 @@ static void apply_global_defaults(pg_global_config_t *g)
     g->sample_buffer        = 120;
     g->max_kills_per_minute = 3;
     g->max_caged_processes  = 10;
+    g->cage_cpu_percent     = 50;
     g->dry_run              = true;
 }
 
