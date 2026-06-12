@@ -23,6 +23,7 @@
 typedef struct {
     const char *config;
     const char *proc_base;
+    int         cycles;
 } pg_args_t;
 
 typedef struct {
@@ -35,11 +36,17 @@ static void parse_args(int argc, char **argv, pg_args_t *a)
 {
     a->config    = "config/procguard.ini";
     a->proc_base = "/proc";
+    a->cycles    = PG_CYCLES;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
             a->config = argv[++i];
         } else if (strcmp(argv[i], "--proc") == 0 && i + 1 < argc) {
             a->proc_base = argv[++i];
+        } else if (strcmp(argv[i], "--cycles") == 0 && i + 1 < argc) {
+            int n = atoi(argv[++i]);
+            if (n > 0) {
+                a->cycles = n;
+            }
         }
     }
 }
@@ -163,17 +170,18 @@ static int run_cycle(pg_collector_t *col, pg_alert_engine_t *eng,
 }
 
 static int run_loop(pg_collector_t *col, pg_alert_engine_t *eng,
-                    pg_store_t *store, long hz, long ncpus, unsigned interval)
+                    pg_store_t *store, long hz, long ncpus,
+                    unsigned interval, int cycles)
 {
     pg_raw_sample_t *prev = NULL;
     size_t prev_n = 0;
     int rc = 0;
-    for (int c = 0; c < PG_CYCLES; c++) {
+    for (int c = 0; c < cycles; c++) {
         if (run_cycle(col, eng, store, hz, ncpus, &prev, &prev_n, c) != 0) {
             rc = 1;
             break;
         }
-        if (c < PG_CYCLES - 1) {
+        if (c < cycles - 1) {
             sleep_ms(interval);
         }
     }
@@ -213,8 +221,8 @@ int main(int argc, char **argv)
     }
     printf("procguard: config=%s proc=%s dry_run=%s interval=%u ms x %d ciclos\n",
            args.config, args.proc_base, g->dry_run ? "true" : "false",
-           g->sample_interval_ms, PG_CYCLES);
-    rc = run_loop(col, eng, store, hz, ncpus, g->sample_interval_ms);
+           g->sample_interval_ms, args.cycles);
+    rc = run_loop(col, eng, store, hz, ncpus, g->sample_interval_ms, args.cycles);
 
     pg_store_destroy(store);
     pg_alert_engine_destroy(eng);
