@@ -141,6 +141,7 @@ Al cerrar sesión, actualizar `docs/STATE.md`.
 ```bash
 make debug           # símbolos, sin optimización
 make asan            # AddressSanitizer + UBSAN
+make tsan            # ThreadSanitizer (races; build sin ASAN). Activa en Slice 5
 make test            # tests con leak detection
 make test-quick      # tests sin leak detection (iteración RED-GREEN)
 make valgrind        # memcheck (requiere build sin ASAN)

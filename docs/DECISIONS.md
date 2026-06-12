@@ -217,3 +217,191 @@ siguen donde estaban (correcto: es el mismo proceso por `(pid, starttime)`).
 Si desaparece >G=10 ciclos, M2 lo expira y el siguiente `gc` libera el
 state. Orden obligatorio en el integrador: `engine_cycle → store_tick →
 engine_gc`.
+
+---
+
+## ADR-014: Acción no disponible AVANZA el escalamiento (no lo atasca); cage real con mínimo privilegio
+
+**Contexto:** la secuencia de escalamiento del PDF (warn→renice→cage→stop→
+kill) incluye `cage` (cgroups v2), `affinity` y `term`. Un primer plan dejaba
+estas acciones como "log: not implemented" **sin avanzar nivel** — pero eso
+**atasca** el escalamiento: si la política llega a `cage` y cage no está
+disponible (sin privilegios, o aún no implementado), nunca alcanza `stop`/
+`kill`. Esto sabotea la métrica de "efectividad de gobernanza" del experimento
+(§10.1): las anomalías de CPU no se resolverían porque `renice` solo es
+efectivo bajo contención y `cage` no correría. Además, ejecutar las acciones
+destructivas requiere privilegios elevados, lo que abre superficie de riesgo.
+
+**Decisión:** dos partes.
+1. **No-stall:** una acción no disponible o no implementada en `act()`
+   (`cage`/`affinity`/`term` mientras no estén) se registra y **avanza el
+   nivel de escalamiento** igual que una acción ejecutada (mismo efecto sobre
+   `cooldown_until_ms` y reset de `persistence`). El escalamiento nunca se
+   atrapa; siempre puede llegar a `stop`/`kill`.
+2. **Cage real con mínimo privilegio:** cuando se implemente (slice dedicado,
+   no 4b), `cage` escribe `cpu.max`/`memory.max` **solo** bajo
+   `/sys/fs/cgroup/procguard/<pid>/`, nunca toca cgroups del sistema. Se
+   prefiere **delegación de cgroups de systemd** (`Delegate=yes`) o
+   capabilities acotadas (`CAP_KILL`, `CAP_SYS_NICE`, `CAP_SYS_ADMIN` solo
+   para el subárbol) sobre root pleno. Si la creación del cgroup falla en
+   runtime, aplica la regla no-stall (avanza nivel, registra el fallo).
+
+**Consecuencias:** el contención de daño se apoya en las protecciones ya
+especificadas (PDF §7, ADR-005/012): `dry_run=true` por defecto, lista
+blanca inmutable, techo de acciones, cordura 5s, reválida `(pid,starttime)`.
+Root/capabilities solo amplifican el alcance de acciones que esas barreras
+ya filtran. El experimento mide una secuencia que SIEMPRE progresa, así que
+la efectividad de gobernanza no queda artificialmente en cero por una acción
+intermedia indisponible. Coste: `cage` real es un slice propio (cgroups v2 +
+modelo de privilegios); 4b solo implementa el no-stall y warn/renice/stop/
+kill.
+
+---
+
+## ADR-015: Concurrencia de Slice 5 se valida bajo ThreadSanitizer, no solo ASan
+
+**Contexto:** las tres colas IPC (ADR-002) se testean hoy de forma
+**secuencial**. ASan+UBSAN —los sanitizers del proyecto— **no detectan data
+races**. Cuando Slice 5 instancie los hilos reales (gobernanza, inotify,
+TUI), un race sobre las estructuras compartidas pasaría los tests verdes y
+mordería en la demo.
+
+**Decisión:** Slice 5 añade validación bajo **ThreadSanitizer**. El target
+`make tsan` ya existe como scaffold (compila el binario con
+`-fsanitize=thread`; TSan y ASan no conviven, igual que valgrind). Slice 5
+añade variantes de test con `pthread_create` que estresan las colas
+productor/consumidor y se ejecutan bajo este target. Criterio de cierre de
+Slice 5: tests con hilos verdes bajo `make tsan`, además de ASan/valgrind
+para la lógica secuencial.
+
+**Consecuencias:** los races se cazan antes de la integración, no en la
+demo. Coste: un árbol de objetos paralelo para tests-bajo-tsan (TSan no
+mezcla con los .o compilados con ASan) — se construye en Slice 5 cuando
+exista el primer test con hilos, no antes (scope discipline).
+
+---
+
+## ADR-016: `exe_path` se recolecta en M1; revalidación TOCTOU de `(pid,starttime)` en `act()`
+
+**Contexto:** el whitelist de M4 `validate` (ADR-012, PDF §7) necesita la
+ruta real del ejecutable (`/proc/[pid]/exe`) para dos reglas: "protegido por
+nombre **y** ruta estándar" y detección de kernel thread (`exe==""`). El
+`pg_raw_sample_t` no la trae y M1 no la lee. Además, la revalidación de
+`(pid,starttime)` "vs el sample actual" dentro de un ciclo síncrono
+(evaluate→validate→act) es un no-op: evaluate ya usó ese mismo sample, así
+que el starttime coincide por construcción. La protección real contra PID
+reciclado (ADR-005) es la ventana TOCTOU entre leer procfs y enviar el
+syscall.
+
+**Decisión:** tres partes.
+1. **`exe_path` vive en el sample (M1).** Por ADR-001 (M1 es el único dueño
+   de la lectura de procfs), el collector hace `readlink(/proc/[pid]/exe)` y
+   lo guarda en `pg_raw_sample_t.exe_path` (campo append-only, bounded
+   `PG_EXE_MAX`; truncado documentado). Kernel threads / procesos muertos →
+   `exe_path==""`. `validate` permanece **puro** (sin I/O), operando sobre el
+   sample. Reutilizado por M5 `disguised_process`.
+2. **TOCTOU en `act()`, no en `validate`.** La revalidación autoritativa
+   re-lee el starttime actual del pid **justo antes** del syscall, vía un
+   helper de M1 `pg_collector_read_starttime(proc_base, pid, *out)`. Si
+   cambió o el proceso desapareció → se cancela la acción y se registra
+   "proceso desaparecido antes de acción". `validate` conserva solo un
+   chequeo barato de consistencia (decisión.id vs sample del ciclo).
+3. **`engine_init` recibe `proc_base`.** Necesario para el re-read de (2).
+   Append a la firma: `pg_alert_engine_init(eng, ini_path, proc_base,
+   own_pid, hz, ncpus, sc)`.
+
+**Consecuencias:** M4 no lee procfs (ADR-001 intacto); `validate` y `act`
+siguen testeables en aislamiento (validate puro sobre samples; act re-lee
+vía helper inyectable/fixture). El `exe_path` no se desperdicia: M5 lo
+necesita. Coste: M1 crece (readlink + helper starttime, sub-fase 5a con
+TDD); cada sample carga `PG_EXE_MAX` bytes extra (aceptable < cientos de
+procs).
+
+---
+
+## ADR-017: Modelo de ejecución de `act()` — techo transitorio, no-stall, dry-run sin TOCTOU
+
+**Contexto:** `act()` (Slice 4b Fase 6) aplica las decisiones que sobreviven a
+`validate`. Tres puntos del flujo admitían dos lecturas razonables, y la
+elección de cada uno tiene consecuencias sobre el escalamiento y el
+experimento (§10):
+
+1. **Techo kills/min alcanzado:** ¿la decisión KILL bloqueada por el techo
+   AVANZA el nivel (como una acción ejecutada) o se trata como un skip que se
+   reintenta?
+2. **Acción no implementada (AFFINITY/CAGE/TERM):** ya cubierto por ADR-014
+   (avanza), pero conviene contrastarlo con (1).
+3. **Dry-run y el guard TOCTOU:** ¿el modo previsualización re-lee el starttime
+   real (TOCTOU) aunque no ejecute syscall?
+
+**Decisión:**
+
+1. **El techo es un freno transitorio, NO avanza.** KILL con
+   `kills_last_minute >= max_kills_per_minute` se registra `skip:ceiling`, no
+   ejecuta syscall, **no** fija cooldown, **no** resetea persistence y **no**
+   avanza nivel. El próximo ciclo lo reemite y se reintenta en cuanto se libere
+   cupo en la ventana de 60 s. Avanzar habría llevado el nivel más allá de
+   `kill` (a "exhausted") dejando el proceso vivo: derrota el propósito del
+   freno. El techo gobierna la *tasa* de kills, no la *secuencia*.
+2. **El no-stall sí avanza** (ADR-014): una acción intermedia indisponible
+   (`cage`/`affinity`/`term`) cuenta como ejecutada para que la secuencia
+   siempre alcance `stop`/`kill`. Eje ortogonal al techo: indisponibilidad de
+   *acción* (avanza) vs límite de *tasa* (reintenta).
+3. **El dry-run no hace TOCTOU.** No hay syscall destructivo que proteger, así
+   que el modo previsualización omite el re-read de starttime, loguea
+   `state=dry_run` y avanza nivel/cooldown igual que una ejecución. Mantiene la
+   previsualización de la secuencia completa independiente del estado vivo del
+   proceso (y de un procfs montado en tests). El guard TOCTOU (ADR-016) opera
+   solo en modo real, justo antes de RENICE/STOP/KILL.
+
+**Consecuencias:** el log distingue cuatro estados terminales por decisión:
+`executed`, `dry_run`, `skip:ceiling` (reintentable) y `skip:gone` (TOCTOU
+falló: PID reciclado o desaparecido). Solo `executed`/`dry_run` mutan el state
+(cooldown + reset persistence + avance/reactivación). El experimento mide una
+secuencia que progresa salvo cuando el techo la frena deliberadamente — la
+efectividad de gobernanza no queda en cero por una acción intermedia
+indisponible, pero el techo sí acota el daño por unidad de tiempo. El contador
+`max_caged_processes` y su campo en el engine se difieren a Slice 4c (cage
+real): ninguna acción de 4b lo lee/escribe, añadirlo ahora sería campo muerto.
+
+---
+
+## ADR-018: Backend de `cage` inyectable vía `pg_syscalls_t`; real = sysfs cgroups v2 subárbol propio
+
+**Contexto:** Slice 4c implementa `PG_ACT_CAGE` (hasta 4b era no-stall puro).
+El cage limita CPU escribiendo `cpu.max` en un subárbol cgroups v2
+(`/sys/fs/cgroup/procguard/<pid>/`, ADR-014). Esa escritura requiere privilegios
+(root, capabilities acotadas o delegación systemd) que no existen en una sesión
+de usuario ni en CI. Igual que las syscalls destructivas (ADR-009), los tests
+no pueden ejercitar la ruta real sin efectos colaterales ni privilegios.
+
+**Decisión:** el "cage backend" son dos punteros a función añadidos a
+`pg_syscalls_t` (struct ya inyectable de ADR-009): `cage_apply(pid,
+cpu_percent)` y `cage_release(pid)`. Por defecto (`sc == NULL` en
+`engine_init`) apuntan al backend real de sysfs (`pg_cage_apply_sysfs` /
+`pg_cage_release_sysfs`). Los tests inyectan stubs grabadores. Si un `sc`
+inyectado deja esos punteros en `NULL` (test que solo inyecta kill/setpriority),
+`act()` trata CAGE como **no-stall** (avanza sin cagear) — degradación elegante.
+
+Tres reglas de ejecución de CAGE en `act()`:
+1. **CAGE es destructive → guard TOCTOU** (ADR-016): re-lee el starttime antes
+   de adjuntar el pid; reciclado/ausente → cancela (`skip:gone`). Cagear el pid
+   equivocado es tan grave como matarlo.
+2. **Techo `max_caged_processes` = no-stall** (no reintenta, a diferencia del
+   techo de kills de ADR-017): cage lleno = cage indisponible para ese proceso
+   → AVANZA a stop/kill (ADR-014). `cage` es intermedio en la secuencia
+   (warn→renice→cage→stop→kill); reintener atascaría el escalamiento.
+3. **Cualquier fallo del backend** (sin privilegios, mkdir/write falla) →
+   no-stall advance (`cage_failed`). El ciclo nunca aborta.
+
+El engine lleva un registro de ids cageados (`caged[]`, cap =
+`max_caged_processes`) para: idempotencia (no doble-contar re-cage), el techo, y
+la liberación. `engine_gc` libera (`rmdir`) los cages cuyo proceso ya no está en
+el store, atado a la gracia G=10 de M2 (ADR-013).
+
+**Consecuencias:** unit-tests deterministas de toda la lógica de cage sin root;
+el backend real se implementa e inspecciona y se valida con un smoke test
+gated a privilegios (no en CI). La contención de daño se apoya en las 6 capas
+ya especificadas (PDF §7): el cage real solo amplía el alcance de acciones que
+whitelist/techo/cordura/reválida/dry_run ya filtran. `memory.max` (segundo
+límite) queda como deuda; `affinity`/`term` siguen no-stall.

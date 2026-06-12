@@ -41,3 +41,20 @@ INI.
 
 **ASan + valgrind no conviven.** ASan reemplaza `malloc`, memcheck pierde
 su instrumentación. Workflow: `make clean && make debug && make valgrind`.
+
+**Sin dependencias de headers → objetos stale tras editar un `.h`.** Las
+reglas `$(TESTS_BUILD_DIR)/X.o: src/.../X.c` listan solo el `.c`, no los
+headers. Al cambiar un header compartido (p.ej. añadir un campo a
+`pg_global_config_t` en `alert_config.h`, o al engine en `alert_internal.h`),
+make NO recompila los `.o` que lo incluyen → quedan con el **layout viejo del
+struct** mientras el binario de test se recompila con el nuevo → ABI mismatch:
+campos leídos en offsets equivocados (síntoma: un test que valida `dry_run` u
+otro campo falla de forma determinista y "imposible"). Fix: **`make clean`
+después de editar cualquier header**, antes de `make test`/`test-quick`. (Fix
+de fondo: `-MMD -MP` con `-include $(DEPS)`; pendiente, fuera de scope.)
+
+**inih SÍ compila limpio bajo las flags estrictas del proyecto** (verificado
+en Slice 4c). El binario `procguard` lo compila en el mismo `gcc` que el resto
+de fuentes (no necesita objeto relajado aparte). La regla relajada
+`$(TESTS_BUILD_DIR)/ini.o` se mantiene solo para los binarios de test (mezcla
+con ASAN de otros `.o`).
