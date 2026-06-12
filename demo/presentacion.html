@@ -8,265 +8,258 @@
   :root{
     --green:#1b5e3f; --green2:#2e8b63; --ink:#1a2330; --muted:#5b6b7a;
     --bg:#f7f9f8; --card:#ffffff; --line:#dce5e0; --accent:#c2410c;
-    --code-bg:#0f1b16; --code-ink:#d7f0e2;
+    --code-bg:#0f1b16; --code-ink:#d7f0e2; --blue:#1d4ed8;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{font-family:"Segoe UI",system-ui,Arial,sans-serif;background:var(--bg);color:var(--ink)}
-  .slide{
-    display:none;min-height:100vh;padding:6vh 8vw;flex-direction:column;justify-content:center;
-  }
+  .slide{display:none;min-height:100vh;padding:5vh 8vw;flex-direction:column;justify-content:center}
   .slide.active{display:flex;animation:fade .25s ease}
   @keyframes fade{from{opacity:.4}to{opacity:1}}
+  .kicker{font-size:1.3vw;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--green2);margin-bottom:.5rem}
+  .kicker.obs{color:#1d4ed8}.kicker.mid{color:#0e7490}.kicker.act{color:var(--accent)}.kicker.con{color:#7c3aed}
   h1{font-size:4.2vw;line-height:1.1;color:var(--green);margin-bottom:1.2rem}
-  h2{font-size:2.9vw;color:var(--green);margin-bottom:1.6rem;border-bottom:3px solid var(--green2);padding-bottom:.5rem;display:inline-block}
-  h3{font-size:1.7vw;color:var(--ink);margin:.4rem 0}
-  p,li{font-size:1.7vw;line-height:1.5;color:var(--ink)}
+  h2{font-size:2.8vw;color:var(--green);margin-bottom:1.3rem;line-height:1.15}
+  h3{font-size:1.6vw;color:var(--ink);margin:.4rem 0}
+  p,li{font-size:1.65vw;line-height:1.5;color:var(--ink)}
   .sub{font-size:2vw;color:var(--muted);font-style:italic;margin-bottom:.6rem}
-  .meta{font-size:1.4vw;color:var(--muted);margin-top:2rem;line-height:1.7}
-  ul{margin:.4rem 0 0 1.6em}
-  li{margin:.55rem 0}
-  .lead{font-size:1.9vw}
-  .muted{color:var(--muted)}
-  .accent{color:var(--accent);font-weight:700}
-  .green{color:var(--green);font-weight:700}
-  /* pills / flow */
-  .flow{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem}
-  .pill{background:var(--green);color:#fff;padding:.5rem 1rem;border-radius:999px;font-size:1.5vw;font-weight:600}
+  .meta{font-size:1.35vw;color:var(--muted);margin-top:2rem;line-height:1.7}
+  .lead{font-size:1.85vw}
+  .muted{color:var(--muted)} .accent{color:var(--accent);font-weight:700}
+  .green{color:var(--green);font-weight:700} .blue{color:var(--blue);font-weight:700}
+  ul{margin:.4rem 0 0 1.5em} li{margin:.5rem 0}
+  .flow{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:1rem;align-items:center}
+  .pill{background:var(--green);color:#fff;padding:.5rem 1rem;border-radius:999px;font-size:1.45vw;font-weight:600}
   .pill.soft{background:#e7f1ec;color:var(--green)}
-  .arrow{color:var(--green2);font-size:1.8vw;align-self:center;font-weight:700}
-  /* grid */
+  .arrow{color:var(--green2);font-size:1.7vw;font-weight:700}
   .grid{display:grid;gap:1rem;margin-top:1rem}
-  .g3{grid-template-columns:repeat(3,1fr)}
-  .g2{grid-template-columns:repeat(2,1fr)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.1rem 1.3rem;box-shadow:0 2px 10px rgba(20,40,30,.04)}
-  .card h3{color:var(--green);font-size:1.55vw;margin-bottom:.3rem}
-  .card p{font-size:1.35vw;color:var(--muted)}
+  .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:1.05rem 1.25rem;box-shadow:0 2px 10px rgba(20,40,30,.04)}
+  .card h3{color:var(--green);font-size:1.5vw;margin-bottom:.3rem}
+  .card p{font-size:1.32vw;color:var(--muted)}
   .card.done{border-left:6px solid var(--green2)}
-  .card.todo{border-left:6px solid #c9cfcc;opacity:.7}
-  .card.todo h3{color:var(--muted)}
-  .tag{display:inline-block;font-size:1.1vw;font-weight:700;border-radius:6px;padding:.1rem .5rem;margin-left:.4rem}
-  .tag.ok{background:#dff3e8;color:var(--green)}
-  .tag.wip{background:#fdeede;color:var(--accent)}
-  /* code box */
-  pre{background:var(--code-bg);color:var(--code-ink);border-radius:12px;padding:1.1rem 1.3rem;font-size:1.2vw;line-height:1.5;overflow:auto;margin-top:1rem;font-family:"JetBrains Mono",Consolas,monospace}
-  .k{color:#8be0b4}.w{color:#ffd479}.r{color:#ff9b8a}.d{color:#9fb4c9}
+  .card.todo{border-left:6px solid #c9cfcc;opacity:.7} .card.todo h3{color:var(--muted)}
+  .card .num{font-size:1.1vw;font-weight:800;color:var(--accent)}
+  .tag{display:inline-block;font-size:1.05vw;font-weight:700;border-radius:6px;padding:.1rem .5rem;margin-left:.4rem}
+  .tag.ok{background:#dff3e8;color:var(--green)} .tag.wip{background:#fdeede;color:var(--accent)}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:12px;padding:1rem 1.2rem;font-size:1.18vw;line-height:1.5;overflow:auto;margin-top:1rem;font-family:"JetBrains Mono",Consolas,monospace}
+  .w{color:#ffd479}.r{color:#ff9b8a}.d{color:#9fb4c9}
   table{border-collapse:collapse;margin-top:1rem;width:100%}
-  td,th{border:1px solid var(--line);padding:.6rem .9rem;font-size:1.4vw;text-align:left}
+  td,th{border:1px solid var(--line);padding:.55rem .9rem;font-size:1.35vw;text-align:left}
   th{background:var(--green);color:#fff}
-  .big{font-size:2.4vw;text-align:center;margin:1rem 0}
+  .big{font-size:2.3vw;text-align:center;margin:1rem 0}
   .demo-banner{font-size:5vw;color:var(--accent);text-align:center;font-weight:800;letter-spacing:.04em}
-  .stat{display:flex;gap:2.5vw;flex-wrap:wrap;margin-top:1.5rem}
-  .stat div{text-align:center}
-  .stat b{display:block;font-size:3.4vw;color:var(--green)}
-  .stat span{font-size:1.3vw;color:var(--muted)}
-  /* chrome */
+  .stat{display:flex;gap:2.5vw;flex-wrap:wrap;margin-top:1.3rem}
+  .stat div{text-align:center} .stat b{display:block;font-size:3vw;color:var(--green)} .stat span{font-size:1.2vw;color:var(--muted)}
+  .note{font-size:1.4vw;margin-top:1.3rem;background:#eef5f1;border-left:5px solid var(--green2);padding:.8rem 1.1rem;border-radius:8px}
   #bar{position:fixed;top:0;left:0;height:5px;background:var(--green2);width:0;transition:width .2s;z-index:50}
   #count{position:fixed;bottom:14px;right:20px;font-size:1.1vw;color:var(--muted);z-index:50}
   #hint{position:fixed;bottom:14px;left:20px;font-size:1vw;color:var(--line);z-index:50}
   @media print{
     .slide{display:flex!important;min-height:auto;page-break-after:always;padding:5vh 6vw;border-bottom:1px solid #ccc}
     #bar,#count,#hint{display:none}
-    h1{font-size:30px}h2{font-size:24px}p,li,.pill,td,th{font-size:14px!important}pre{font-size:11px}
+    h1{font-size:30px}h2{font-size:22px}p,li,.pill,td,th,.kicker{font-size:13px!important}pre{font-size:10px}
   }
 </style>
 </head>
 <body>
 <div id="bar"></div>
 
-<!-- 1 -->
+<!-- 1 · TÍTULO -->
 <section class="slide active">
   <h1>ProcGuard</h1>
   <p class="sub">Sistema de Gobernanza Activa de Procesos para Linux</p>
-  <p class="lead">Del monitoreo <span class="muted">pasivo</span> a la gobernanza <span class="green">activa</span>: observación → detección → decisión → acción → registro.</p>
+  <p class="lead">Tres pilares del sistema operativo puestos a trabajar:
+    <span class="blue">OBSERVAR</span> · <span style="color:#0e7490;font-weight:700">MEDIR</span> · <span class="accent">CONTROLAR</span> los procesos.</p>
   <p class="meta">Brahian Ocampo Garcia &nbsp;·&nbsp; Sistemas Operativos 2026-1<br>Universidad de Antioquia — Facultad de Ingeniería</p>
 </section>
 
-<!-- 2 -->
+<!-- 2 · QUÉ ES GOBERNAR PROCESOS -->
 <section class="slide">
-  <h2>El problema</h2>
-  <p class="lead muted">Las herramientas actuales solo <b>observan</b>.</p>
+  <h2>¿Qué significa "gobernar" procesos?</h2>
   <ul>
-    <li><b>Observación pasiva:</b> <code>top</code>/<code>htop</code> muestran métricas, desconectadas de la acción.</li>
-    <li><b>Acción manual:</b> el admin identifica, decide y ejecuta a mano <code>kill</code>, <code>renice</code>, <code>taskset</code> → lento, propenso a error, sin trazabilidad.</li>
-    <li><b>Sin seguridad:</b> un proceso que escanea puertos o se camufla pasa desapercibido.</li>
+    <li>Un <b>proceso</b> es un programa en ejecución: su estado, su memoria, sus descriptores y un <b>estado de planificación</b> en el que el SO decide cuándo le da CPU.</li>
+    <li>El SO <b>ya</b> gobierna procesos (planificador, memoria…) pero de forma <b>genérica y justa para todos</b>: no conoce las políticas de <i>mi</i> organización.</li>
+    <li><code>top</code>/<code>htop</code> solo dejan <b>observar</b>: ante un proceso desbocado, el admin cierra el lazo a mano.</li>
   </ul>
 </section>
 
-<!-- 3 -->
+<!-- 3 · EL LAZO DE CONTROL -->
 <section class="slide">
-  <h2>La propuesta</h2>
-  <p class="lead">Cerrar el ciclo completo, gobernado por <span class="green">políticas declarativas</span> (archivo INI):</p>
+  <h2>De observación pasiva a gobernanza activa</h2>
+  <p class="lead">ProcGuard cierra el <b>lazo de control</b> automáticamente, gobernado por <span class="green">políticas declarativas</span> (archivo INI):</p>
   <div class="flow">
     <span class="pill">Observación</span><span class="arrow">→</span>
     <span class="pill">Detección</span><span class="arrow">→</span>
     <span class="pill">Decisión</span><span class="arrow">→</span>
     <span class="pill">Acción</span><span class="arrow">→</span>
-    <span class="pill">Registro</span>
+    <span class="pill">Registro</span><span class="arrow">↻</span>
   </div>
-  <p style="margin-top:1.6rem">…con <span class="accent">protecciones multinivel</span> contra daño autoinfligido. El administrador define umbrales, acciones y sensibilidad.</p>
+  <p class="note">Es un sistema de <b>control realimentado</b> sobre los procesos: observa, decide, actúa… y vuelve a observar.</p>
 </section>
 
-<!-- 4 -->
+<!-- 4 · ARQUITECTURA -->
 <section class="slide">
-  <h2>Arquitectura: 7 módulos</h2>
+  <h2>Arquitectura: 7 módulos, un pipeline</h2>
   <div class="grid g3">
-    <div class="card done"><h3>M1 · Collector <span class="tag ok">hecho</span></h3><p>Lee procfs → muestras crudas. id (pid, starttime).</p></div>
-    <div class="card done"><h3>M2 · Sample Store <span class="tag ok">hecho</span></h3><p>Buffer circular por proceso + gracia G=10.</p></div>
-    <div class="card done"><h3>M3 · Metrics <span class="tag ok">hecho</span></h3><p>CPU%, RSS, tasas I/O. Funciones puras.</p></div>
-    <div class="card done"><h3>M4 · Alert &amp; Governance <span class="tag ok">hecho</span></h3><p><b>El núcleo.</b> Políticas, escalamiento, protecciones, cage.</p></div>
-    <div class="card todo"><h3>M5 · Security <span class="tag wip">diseñado</span></h3><p>4 heurísticas (port scan, camuflados…).</p></div>
-    <div class="card todo"><h3>M6 · TUI <span class="tag wip">diseñado</span></h3><p>ncurses, hilo dedicado.</p></div>
-    <div class="card todo"><h3>M7 · Report <span class="tag wip">diseñado</span></h3><p>JSON lines + snapshots + HTML.</p></div>
-    <div class="card" style="display:flex;align-items:center;justify-content:center"><p class="green" style="font-size:1.4vw"><b>M1→M2→M3→M4</b><br>orden por dependencias</p></div>
+    <div class="card done"><h3>M1 · Collector <span class="tag ok">hecho</span></h3><p>Observa procfs → muestras.</p></div>
+    <div class="card done"><h3>M2 · Store <span class="tag ok">hecho</span></h3><p>Historial por proceso.</p></div>
+    <div class="card done"><h3>M3 · Metrics <span class="tag ok">hecho</span></h3><p>CPU%, memoria, I/O.</p></div>
+    <div class="card done"><h3>M4 · Governance <span class="tag ok">hecho</span></h3><p><b>El núcleo:</b> decide y actúa.</p></div>
+    <div class="card todo"><h3>M5 · Security <span class="tag wip">diseñado</span></h3><p>Heurísticas de amenaza.</p></div>
+    <div class="card todo"><h3>M6 · TUI <span class="tag wip">diseñado</span></h3><p>Interfaz interactiva.</p></div>
+    <div class="card todo"><h3>M7 · Report <span class="tag wip">diseñado</span></h3><p>Registro forense + HTML.</p></div>
+    <div class="card" style="display:flex;align-items:center;justify-content:center"><p class="green" style="font-size:1.35vw">OBSERVAR → MEDIR<br>→ DECIDIR → ACTUAR</p></div>
   </div>
 </section>
 
-<!-- 5 -->
+<!-- 5 · OBSERVAR: frontera kernel/usuario -->
 <section class="slide">
-  <h2>Marco técnico</h2>
+  <p class="kicker obs">Pilar 1 · Observar</p>
+  <h2>La frontera kernel / espacio de usuario</h2>
+  <ul>
+    <li>Un programa de usuario <b>no puede leer la memoria del kernel</b>: la separación por <b>anillos de protección</b> lo impide.</li>
+    <li>El SO expone su estado vía <b>procfs</b>, un <b>pseudo-sistema de archivos</b>: los archivos de <code>/proc</code> no están en disco — el kernel los <b>genera al vuelo</b> al leerlos. Es la <b>ventana oficial</b> del kernel.</li>
+    <li>De ahí leo el <b>estado</b> del proceso (ejecutándose, durmiendo, detenido, zombi) y el <b>árbol de procesos</b> (PPID); los huérfanos los readopta <code>init</code> (PID 1).</li>
+  </ul>
+</section>
+
+<!-- 6 · OBSERVAR: identidad y reciclaje de PID -->
+<section class="slide">
+  <p class="kicker obs">Pilar 1 · Observar</p>
+  <h2>Identidad de un proceso y reciclaje de PID</h2>
+  <ul>
+    <li>El <b>PID no es una identidad permanente</b>: es un recurso <b>finito</b> que el SO <b>recicla</b> cuando un proceso muere.</li>
+    <li>Si decido "matar al PID 1234" y ese número fue reasignado entre la observación y la acción, <b>mataría al proceso equivocado</b>.</li>
+    <li>Solución: identifico por la tupla <span class="green">(PID, tiempo de inicio)</span>. El <i>tiempo de inicio</i> lo fija el kernel al crear el proceso y no se repite.</li>
+  </ul>
+</section>
+
+<!-- 7 · MEDIR: contabilidad del kernel -->
+<section class="slide">
+  <p class="kicker mid">Pilar 2 · Medir</p>
+  <h2>La contabilidad de recursos del kernel</h2>
   <div class="grid g3">
-    <div class="card"><h3>procfs</h3><p><code>/proc/[pid]/</code> stat, statm, io, exe. Fuente primaria de datos.</p></div>
-    <div class="card"><h3>cgroups v2</h3><p>Confinar recursos (<code>cpu.max</code>) en subárbol propio, mínimo privilegio.</p></div>
-    <div class="card"><h3>(pid, starttime)</h3><p>Identidad única contra el reciclaje de PIDs del kernel.</p></div>
+    <div class="card"><h3>%CPU = una tasa</h3><p>El kernel solo da tiempos <b>acumulados</b> (ticks de reloj). El % es Δcpu / Δtiempo entre <b>dos muestras</b>.</p></div>
+    <div class="card"><h3>Reloj monótono</h3><p>Para el "tiempo real" uso un reloj que <b>no salta</b> con ajustes de hora (si no, tasas negativas).</p></div>
+    <div class="card"><h3>Memoria: física vs virtual</h3><p><b>RSS</b> = páginas en RAM; <b>virtual</b> = espacio que el proceso cree tener. La diferencia es la <b>paginación</b>.</p></div>
   </div>
-  <p style="margin-top:1.4rem">Para <b>actuar</b>: señales POSIX (SIGSTOP/SIGKILL), <code>setpriority()</code>, y cgroups v2. <span class="muted">CPU% se deriva entre dos muestras con <code>CLOCK_MONOTONIC</code>.</span></p>
+  <p class="note">Idea clave: el SO <b>mide acumulados</b>; las métricas accionables las <b>deriva el observador</b>.</p>
 </section>
 
-<!-- 6 -->
+<!-- 8 · DECIDIR: control estable -->
 <section class="slide">
-  <h2>Ciclo de gobernanza (10 pasos)</h2>
-  <div class="flow">
-    <span class="pill soft">1 · Consumir colas</span>
-    <span class="pill soft">2 · Recolectar</span>
-    <span class="pill soft">3 · Calcular</span>
-    <span class="pill soft">4 · Eval. rendimiento</span>
-    <span class="pill soft">5 · Eval. seguridad</span>
-    <span class="pill">6 · Validar</span>
-    <span class="pill">7 · Actuar</span>
-    <span class="pill soft">8 · Capturar</span>
-    <span class="pill soft">9 · Registrar</span>
-    <span class="pill soft">10 · Visualizar</span>
-  </div>
-  <p style="margin-top:1.6rem"><b>Best-effort:</b> si una etapa falla (lectura corrupta, NaN), se salta y se registra; el ciclo siguiente arranca limpio. <span class="muted">Resiliencia en 3 niveles.</span></p>
-</section>
-
-<!-- 7 -->
-<section class="slide">
-  <h2>El motor de gobernanza (M4)</h2>
-  <p class="lead">Tres mecanismos contra <span class="accent">falsos positivos</span>:</p>
+  <p class="kicker act">Pilar 3 · Controlar — decidir</p>
+  <h2>Decidir sin reaccionar al ruido</h2>
+  <p class="lead">Un controlador que reacciona a cada pico es <b>inestable</b>. Tres mecanismos contra falsos positivos:</p>
   <div class="grid g3">
-    <div class="card"><h3>Persistencia</h3><p>La alerta solo se activa si el umbral se supera durante N muestras seguidas.</p></div>
-    <div class="card"><h3>Histéresis</h3><p>Para desactivar, la métrica baja de un 2º umbral durante M muestras.</p></div>
+    <div class="card"><h3>Persistencia</h3><p>Solo se activa si el umbral se supera durante N muestras seguidas.</p></div>
+    <div class="card"><h3>Histéresis</h3><p>Para desactivar, la métrica baja de un 2º umbral y se mantiene (evita el parpadeo).</p></div>
     <div class="card"><h3>Cooldown</h3><p>Enfriamiento entre acciones antes de escalar.</p></div>
   </div>
-  <p style="margin-top:1.4rem"><b>Escalamiento progresivo:</b></p>
-  <div class="flow">
-    <span class="pill">warn</span><span class="arrow">→</span>
-    <span class="pill">renice</span><span class="arrow">→</span>
-    <span class="pill">cage</span><span class="arrow">→</span>
-    <span class="pill">stop</span><span class="arrow">→</span>
-    <span class="pill">kill</span>
-  </div>
+  <p class="note">La misma filosofía con la que el SO <b>no expulsa</b> un proceso por un microsegundo de actividad.</p>
 </section>
 
-<!-- 8 -->
+<!-- 9 · ACTUAR: las palancas del kernel -->
 <section class="slide">
-  <h2>Protección del sistema (§7)</h2>
-  <p class="lead muted">Las protecciones no limitan la <b>detección</b>, solo la <b>acción</b> automática.</p>
+  <p class="kicker act">Pilar 3 · Controlar — actuar</p>
+  <h2>Las palancas de control del kernel</h2>
   <div class="grid g3">
-    <div class="card"><h3>Dry-run</h3><p>Activo por defecto. El admin lo apaga explícitamente.</p></div>
-    <div class="card"><h3>Whitelist inmutable</h3><p>Nunca toca PID 1, sí-mismo, hijos, kernel ni servicios protegidos.</p></div>
-    <div class="card"><h3>Techo de acciones</h3><p>Máx. kills/min y procesos confinados → evita cascadas.</p></div>
-    <div class="card"><h3>Reválida (pid, starttime)</h3><p>Justo antes del syscall: no actúa sobre un PID reciclado.</p></div>
-    <div class="card"><h3>Cordura 5s</h3><p>No mata por un pico instantáneo: exige alerta sostenida.</p></div>
-    <div class="card"><h3>Resiliencia del ciclo</h3><p>Un fallo parcial no tumba el sistema.</p></div>
+    <div class="card"><h3>renice → planificador</h3><p>Cambia la <b>prioridad</b> (<i>nice</i>): el <b>scheduler</b> le da menos CPU, sin matarlo.</p></div>
+    <div class="card"><h3>cage → cgroups v2</h3><p><b>Confina recursos</b> (límite de CPU) en un grupo de control. Es la base de los <b>contenedores</b>.</p></div>
+    <div class="card"><h3>stop / kill → señales</h3><p>Comunicación <b>asíncrona</b> del SO. <code>SIGSTOP</code> suspende, <code>SIGKILL</code> termina — el proceso no puede ignorarlas.</p></div>
+  </div>
+  <p class="lead" style="margin-top:1.2rem"><b>Escalamiento por severidad creciente:</b></p>
+  <div class="flow">
+    <span class="pill">warn</span><span class="arrow">→</span><span class="pill">renice</span><span class="arrow">→</span>
+    <span class="pill">cage</span><span class="arrow">→</span><span class="pill">stop</span><span class="arrow">→</span><span class="pill">kill</span>
   </div>
 </section>
 
-<!-- 9 -->
+<!-- 10 · TOCTOU + protección -->
+<section class="slide">
+  <p class="kicker act">Pilar 3 · Controlar — con cuidado</p>
+  <h2>Condición de carrera y protección del sistema</h2>
+  <ul>
+    <li><b>TOCTOU:</b> entre que <b>observo</b> y <b>actúo</b> hay una ventana; el proceso pudo morir y el PID reciclarse. Por eso <b>revalido (PID, tiempo de inicio) justo antes</b> de cada acción destructiva.</li>
+  </ul>
+  <p class="lead" style="margin-top:.8rem"><b>Defensa en profundidad</b> (protege la acción, no la detección):</p>
+  <div class="grid g3">
+    <div class="card"><h3>Dry-run por defecto</h3><p>No actúa hasta que el admin lo active.</p></div>
+    <div class="card"><h3>Lista blanca</h3><p>Nunca toca PID 1, sí-mismo ni servicios críticos.</p></div>
+    <div class="card"><h3>Cordura 5s + techo</h3><p>No mata por un pico; límite de acciones.</p></div>
+  </div>
+  <p class="note"><b>Mínimo privilegio:</b> para confinar solo escribo en mi propio subárbol de cgroups, nunca en los del sistema.</p>
+</section>
+
+<!-- 11 · DEMO -->
 <section class="slide">
   <p class="demo-banner">▶ DEMO EN VIVO</p>
-  <p class="big muted"><code>bash demo/demo.sh</code> — gobierna un CPU-hog real en dry-run</p>
-  <pre><span class="d">[alert] pid=… level=0 action=</span><span class="w">WARN</span><span class="d">   state=dry_run</span>
-<span class="d">[alert] pid=… level=1 action=</span><span class="w">RENICE</span><span class="d"> state=dry_run</span>
-<span class="d">[alert] pid=… level=2 action=</span><span class="w">CAGE</span><span class="d">   state=dry_run</span>
-<span class="d">[alert] pid=… level=3 action=</span><span class="r">STOP</span><span class="d">   state=</span><span class="r">sanity</span>   ← retenido por la cordura 5s
-<span class="d">[alert] pid=… level=3 action=</span><span class="r">STOP</span><span class="d">   state=dry_run</span>  ← se libera tras 5s
-<span class="d">[alert] pid=… level=4 action=</span><span class="r">KILL</span><span class="d">   state=dry_run</span></pre>
+  <p class="big muted"><code>bash demo/demo.sh</code> — gobierna un CPU-hog real, en dry-run (sin daño)</p>
+  <pre><span class="d">[alert] level=0 action=</span><span class="w">WARN</span><span class="d">   state=dry_run</span>
+<span class="d">[alert] level=1 action=</span><span class="w">RENICE</span><span class="d"> state=dry_run</span>   (prioridad / scheduler)
+<span class="d">[alert] level=2 action=</span><span class="w">CAGE</span><span class="d">   state=dry_run</span>   (cgroups v2)
+<span class="d">[alert] level=3 action=</span><span class="r">STOP</span><span class="d">   state=</span><span class="r">sanity</span>    ← retenido por la cordura 5s
+<span class="d">[alert] level=3 action=</span><span class="r">STOP</span><span class="d">   state=dry_run</span>   (señal SIGSTOP)
+<span class="d">[alert] level=4 action=</span><span class="r">KILL</span><span class="d">   state=dry_run</span>   (señal SIGKILL)</pre>
 </section>
 
-<!-- 10 -->
+<!-- 12 · CONCURRENCIA -->
 <section class="slide">
-  <h2>Rigor de ingeniería</h2>
-  <div class="stat">
-    <div><b>111</b><span>tests unitarios</span></div>
-    <div><b>0</b><span>fugas (valgrind)</span></div>
-    <div><b>18</b><span>decisiones (ADRs)</span></div>
-    <div><b>≤50</b><span>líneas/función</span></div>
-  </div>
-  <ul style="margin-top:1.6rem">
-    <li><b>TDD estricto:</b> test que falla → implementación mínima → verde.</li>
-    <li><b>AddressSanitizer + UBSan</b> en cada test; <b>valgrind</b> sin fugas.</li>
-    <li><b>Inyección de dependencias:</b> syscalls destructivas y backend de cgroups como punteros → se testea sin root ni efectos reales.</li>
-  </ul>
-</section>
-
-<!-- 11 -->
-<section class="slide">
-  <h2>Decisiones de arquitectura (ADRs)</h2>
-  <p class="lead muted">18 decisiones donde dos alternativas razonables competían. Ejemplos:</p>
-  <div class="grid g2">
-    <div class="card"><h3>Acción indisponible → avanza</h3><p>Si <code>cage</code> no está, el escalamiento <b>avanza</b> en vez de atascarse → siempre puede llegar a stop/kill.</p></div>
-    <div class="card"><h3>Guard TOCTOU en <code>act()</code></h3><p>La reválida contra PID reciclado va <b>justo antes</b> del syscall, no antes: ahí está la ventana real.</p></div>
-    <div class="card"><h3>Syscalls inyectadas</h3><p>Punteros a <code>kill</code>/<code>setpriority</code>/cgroups → tests deterministas sin víctimas reales.</p></div>
-    <div class="card"><h3>Identidad (pid, starttime)</h3><p>El PID solo no basta: el kernel los recicla.</p></div>
-  </div>
-</section>
-
-<!-- 12 -->
-<section class="slide">
-  <h2>Estado del proyecto</h2>
-  <table>
-    <tr><th>Completo y probado</th><th>Diseñado / en curso</th></tr>
-    <tr>
-      <td>M1 Collector · M2 Store · M3 Metrics</td>
-      <td>M5 Security (4 heurísticas)</td>
-    </tr>
-    <tr>
-      <td>M4 Alert &amp; Governance (state machine, escalamiento, 6 protecciones)</td>
-      <td>M6 TUI (ncurses) · M7 Report (JSON+HTML)</td>
-    </tr>
-    <tr>
-      <td><b>cage</b> real (cgroups v2)</td>
-      <td>Threading 3 hilos (bajo <code>make tsan</code>) · daemon</td>
-    </tr>
-    <tr>
-      <td>Binario funcional · 111 tests · valgrind limpio</td>
-      <td>Experimento §10 (diseño factorial cerrado)</td>
-    </tr>
-  </table>
-  <p class="meta">Roadmap y deuda técnica en <code>docs/STATE.md</code> · 18 ADRs en <code>docs/DECISIONS.md</code></p>
-</section>
-
-<!-- 13 -->
-<section class="slide">
-  <h2>Aprendizajes</h2>
+  <p class="kicker con">Concepto · Concurrencia</p>
+  <h2>Tres hilos, mutex y deadlock</h2>
   <ul>
-    <li>Programación de sistemas real: <b>procfs, cgroups v2, señales POSIX, pthreads</b>.</li>
-    <li>El reciclaje de PIDs y cómo identificar procesos de forma robusta.</li>
-    <li>Cálculo de métricas derivadas entre muestras (CPU% con jiffies y <code>CLOCK_MONOTONIC</code>).</li>
-    <li>Diseño de un sistema <b>resiliente</b> que no se cae por fallos parciales.</li>
-    <li>Disciplina de ingeniería: TDD, sanitizers, decisiones documentadas, scope discipline.</li>
+    <li>Tres <b>naturalezas temporales</b> distintas → tres hilos: gobernanza <b>periódica</b>, eventos <b>asíncronos</b>, interfaz <b>reactiva</b>.</li>
+    <li>Comparten datos con <b>mutex</b>, patrón <b>productor–consumidor</b> (colas): un hilo produce, otro consume.</li>
+    <li><b>Deadlock imposible por diseño:</b> ningún hilo toma más de un mutex a la vez → rompo la <b>espera circular</b>, una de las cuatro condiciones de Coffman.</li>
+  </ul>
+  <p class="note">Las <b>condiciones de carrera</b> no se ven a simple vista → se validan con herramientas dedicadas (ThreadSanitizer). <span class="muted">Modelo diseñado; hoy el ciclo corre secuencial.</span></p>
+</section>
+
+<!-- 13 · RESILIENCIA -->
+<section class="slide">
+  <p class="kicker con">Concepto · Robustez</p>
+  <h2>Resiliencia ante fallos parciales</h2>
+  <ul>
+    <li>Observar miles de procesos exige <b>tolerar fallos</b>: al leer un proceso que justo desapareció, el SO devuelve un error (<i>no existe el proceso</i>, <i>permiso denegado</i>).</li>
+    <li>Trato esos como <b>condiciones normales</b>: descarto ese proceso y sigo. El recolector <b>nunca aborta</b> por un proceso individual.</li>
+    <li><b>Best-effort:</b> si una etapa del ciclo falla, se salta y se registra; el ciclo siguiente arranca limpio. Un fallo parcial no tumba el sistema.</li>
   </ul>
 </section>
 
-<!-- 14 -->
+<!-- 14 · ESTADO -->
 <section class="slide">
-  <h1>Gracias</h1>
-  <p class="lead">El núcleo de ProcGuard <span class="green">funciona, está probado</span> y demuestra el ciclo completo de gobernanza activa.</p>
+  <h2>Estado del proyecto (honesto)</h2>
+  <table>
+    <tr><th>Completo y probado</th><th>Diseñado / siguiente</th></tr>
+    <tr><td>Observar (M1) · Medir (M2, M3)</td><td>M5 Seguridad (4 heurísticas)</td></tr>
+    <tr><td>Gobernar (M4): decisión, escalamiento, protecciones, <b>cage</b> con cgroups v2</td><td>M6 TUI · M7 Reportes · 3 hilos · daemon</td></tr>
+    <tr><td>Binario funcional</td><td>Experimento de validación (§10)</td></tr>
+  </table>
+  <div class="stat">
+    <div><b>111</b><span>tests</span></div>
+    <div><b>0</b><span>fugas de memoria</span></div>
+    <div><b>4/7</b><span>módulos · el núcleo</span></div>
+  </div>
+</section>
+
+<!-- 15 · CIERRE -->
+<section class="slide">
+  <h2>Conceptos de SO que demuestra</h2>
+  <div class="flow" style="gap:.5rem">
+    <span class="pill soft">Proceso y ciclo de vida</span>
+    <span class="pill soft">Frontera kernel/usuario (procfs)</span>
+    <span class="pill soft">Contabilidad de recursos</span>
+    <span class="pill soft">Planificación (nice)</span>
+    <span class="pill soft">Control de recursos (cgroups)</span>
+    <span class="pill soft">Señales</span>
+    <span class="pill soft">Condiciones de carrera</span>
+    <span class="pill soft">Concurrencia y deadlock</span>
+    <span class="pill soft">Memoria física vs virtual</span>
+    <span class="pill soft">Mínimo privilegio</span>
+  </div>
+  <h1 style="margin-top:2rem">Gracias</h1>
   <p class="big accent">¿Preguntas?</p>
-  <p class="meta">ProcGuard · Brahian Ocampo Garcia · Sistemas Operativos 2026-1 · U. de Antioquia</p>
 </section>
 
 <div id="count"></div>
