@@ -1,0 +1,371 @@
+%=========================================================================
+%  ProcGuard — Informe técnico final
+%  Curso de Sistemas Operativos y Laboratorio
+%  Universidad de Antioquia — Facultad de Ingeniería — 2026-1
+%
+%  Compilar en Overleaf con la clase IEEEtran (pdfLaTeX).
+%=========================================================================
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  keepspaces=true
+}
+
+\begin{document}
+
+\title{ProcGuard: Sistema de Gobernanza Activa de Procesos para Linux\\
+\large Monitoreo multidimensional y respuesta correctiva escalonada sobre procfs y cgroups~v2}
+
+\author{
+\IEEEauthorblockN{Brahian Ocampo García}
+\IEEEauthorblockA{Facultad de Ingeniería\\
+Universidad de Antioquia\\
+Curso de Sistemas Operativos y Laboratorio, 2026-1\\
+\texttt{brahian.ocampo@udea.edu.co}}
+}
+
+\maketitle
+
+%-------------------------------------------------------------------------
+\begin{abstract}
+Las herramientas tradicionales de monitoreo de procesos en Linux (\texttt{top},
+\texttt{htop}) son pasivas: muestran métricas pero desconectan la observación de
+la acción correctiva, que queda como una secuencia manual de comandos sujeta a
+latencia, error humano y ausencia de trazabilidad. Este trabajo presenta
+\emph{ProcGuard}, un sistema escrito en C~(C11) que implementa el ciclo
+observación~$\rightarrow$~detección~$\rightarrow$~decisión~$\rightarrow$~acción
+sobre los procesos en ejecución, gobernado por políticas declarativas en formato
+INI. A partir de \texttt{procfs} se calculan métricas derivadas (uso de CPU,
+memoria residente, tasas de E/S) y se evalúan contra umbrales con tres
+mecanismos contra falsos positivos: persistencia temporal, histéresis y
+\emph{cooldown}. Las anomalías persistentes desencadenan un escalamiento
+progresivo de acciones correctivas
+(\texttt{warn}~$\rightarrow$~\texttt{renice}~$\rightarrow$~\texttt{cage}~$\rightarrow$~\texttt{stop}~$\rightarrow$~\texttt{kill})
+con protecciones contra daño autoinfligido (lista blanca, techo de acciones,
+modo \emph{dry-run} y revalidación de identidad \texttt{(pid, starttime)}). El
+confinamiento se materializa mediante \texttt{cgroups~v2}. Se entrega el núcleo
+de gobernanza (módulos M1--M4) verificado con 111 pruebas unitarias bajo
+AddressSanitizer y UndefinedBehaviorSanitizer. Se reporta la metodología, la
+arquitectura y un diseño experimental formal para evaluación estadística de
+precisión de detección y efectividad de gobernanza, junto con los resultados de
+verificación obtenidos.
+\end{abstract}
+
+\begin{IEEEkeywords}
+sistemas operativos, procfs, cgroups, gobernanza de procesos, monitoreo,
+control de recursos, Linux.
+\end{IEEEkeywords}
+
+%-------------------------------------------------------------------------
+\section{Introducción}
+
+Los sistemas Linux modernos operan bajo cargas mixtas de CPU, memoria, E/S y red,
+con servicios, contenedores y máquinas virtuales coexistiendo sobre el mismo
+hardware. En este contexto, la observación pasiva resulta insuficiente: un
+administrador que detecta un proceso problemático mediante \texttt{top} debe
+identificarlo, evaluar su impacto, decidir una acción y ejecutarla mediante
+comandos separados (\texttt{kill}, \texttt{renice}, \texttt{cgcreate}). Este
+flujo manual introduce latencia, riesgo de error y falta de trazabilidad.
+
+Linux ofrece a nivel de kernel mecanismos de medición y control
+---\texttt{procfs}, \texttt{cgroups~v2}, \texttt{setpriority()},
+\texttt{sched\_setaffinity()}--- que permiten observar y actuar
+programáticamente sobre los procesos. Sin embargo, ninguna herramienta estándar
+de terminal integra en un solo sistema la observación multidimensional, la
+detección de anomalías con control de falsos positivos y la respuesta
+automatizada con protecciones de seguridad.
+
+\textbf{Contribución.} Este trabajo diseña e implementa el núcleo de
+\emph{ProcGuard}, un sistema de gobernanza activa que cierra el lazo entre
+observación y acción mediante políticas configurables. El objetivo general es
+integrar el ciclo observación, detección, decisión y acción sobre procesos,
+gobernado por políticas definidas por el administrador. Como objetivos
+específicos del alcance entregado: (i)~implementar un recolector basado en
+\texttt{procfs} con manejo resiliente de errores; (ii)~calcular métricas
+derivadas a partir de muestras consecutivas; (iii)~desarrollar un motor de
+detección con persistencia, histéresis y \emph{cooldown}; y (iv)~implementar un
+motor de gobernanza con escalamiento progresivo y protecciones contra daño
+autoinfligido.
+
+%-------------------------------------------------------------------------
+\section{Marco teórico}
+
+\subsection{El pseudo-sistema de archivos \texttt{procfs}}
+\texttt{procfs} es la interfaz primaria del kernel para exponer información del
+sistema y de los procesos mediante archivos virtuales legibles. ProcGuard usa
+\texttt{/proc/[pid]/stat} (estado, tiempos de CPU, prioridad, \texttt{starttime}),
+\texttt{/proc/[pid]/status} (memoria \texttt{VmRSS}/\texttt{VmSize}) y
+\texttt{/proc/[pid]/io} (bytes leídos/escritos). La tupla
+\texttt{(pid, starttime)} se emplea como identificador único para evitar errores
+por reciclaje de PID.
+
+\subsection{Cálculo de métricas derivadas}
+El uso de CPU de un proceso no es un valor instantáneo, sino una tasa derivada
+entre dos muestras consecutivas. Sea $\Delta t_{proc} = (utime+stime)$ la
+variación de \emph{ticks} de CPU del proceso y $\Delta t_{wall}$ el intervalo de
+tiempo de pared medido con \texttt{clock\_gettime(CLOCK\_MONOTONIC)}. Con $\mathit{HZ}$
+ticks por segundo y $n_{cpu}$ núcleos:
+\begin{equation}
+\%\mathrm{CPU} = \frac{\Delta t_{proc} / \mathit{HZ}}{\Delta t_{wall}\cdot n_{cpu}}\times 100.
+\end{equation}
+El uso de \texttt{CLOCK\_MONOTONIC} garantiza robustez frente a ajustes del reloj
+del sistema. La memoria se mide con \texttt{VmRSS} (Resident Set Size), de bajo
+costo de lectura y suficiente para la detección de anomalías de consumo.
+
+\subsection{Mecanismos de control de recursos del kernel}
+Las acciones correctivas se apoyan en cuatro mecanismos: señales POSIX
+(\texttt{SIGSTOP}, \texttt{SIGCONT}, \texttt{SIGTERM}, \texttt{SIGKILL}); la
+prioridad \emph{nice} vía \texttt{setpriority()}; la afinidad de CPU vía
+\texttt{sched\_setaffinity()}; y \texttt{cgroups~v2}, que permite confinar un
+proceso bajo \texttt{/sys/fs/cgroup/} aplicando límites de CPU (\texttt{cpu.max})
+y memoria (\texttt{memory.max}) sin terminarlo.
+
+%-------------------------------------------------------------------------
+\section{Metodología}
+
+El desarrollo siguió un enfoque incremental dirigido por pruebas (TDD): cada
+módulo se construyó mediante ciclos RED--GREEN, escribiendo primero las pruebas
+que especifican el comportamiento esperado y luego la implementación mínima que
+las satisface. El trabajo se organizó en \emph{slices} verticales con
+verificación continua bajo sanitizers de memoria y comportamiento indefinido.
+
+La estrategia de pruebas se estructura en tres niveles: (i)~pruebas unitarias por
+módulo con el framework Unity; (ii)~pruebas de integración con un \texttt{procfs}
+sintético, posible porque la ruta base de \texttt{/proc} es un parámetro
+configurable (\texttt{-{}-proc}), lo que permite construir un árbol controlado en
+\texttt{/tmp} y validar el \emph{pipeline} de forma determinista; y
+(iii)~pruebas extremo a extremo del binario sobre el sistema real. Todo el código
+del proyecto se compila con
+\texttt{-Wall -Wextra -Werror -Wshadow} y se ejecuta bajo
+\texttt{-fsanitize=address,undefined} durante las pruebas.
+
+%-------------------------------------------------------------------------
+\section{Implementación}
+
+ProcGuard se diseñó como una arquitectura de siete módulos
+(Fig.~\ref{fig:arch}). Este informe documenta el núcleo de gobernanza
+\textbf{implementado y verificado (M1--M4)} y delimita explícitamente el alcance
+restante como trabajo futuro (Sec.~\ref{sec:alcance}).
+
+\begin{figure}[t]
+\centering
+% Sustituir por la imagen del diagrama de arquitectura.
+\fbox{\parbox[c][3.2cm][c]{0.92\columnwidth}{\centering
+\textit{[Figura: diagrama de arquitectura de 7 módulos.\\
+Insertar \texttt{arquitectura.png} con \textbackslash includegraphics]}}}
+\caption{Arquitectura de ProcGuard. El \emph{pipeline} de datos M1--M3 alimenta
+el motor de gobernanza M4. Los módulos M5--M7 quedan especificados como trabajo
+futuro.}
+\label{fig:arch}
+\end{figure}
+
+\subsection{M1 — Recolector de datos}
+Responsable de la lectura directa de \texttt{procfs}. En cada ciclo escanea el
+directorio base para descubrir procesos activos y almacena, por proceso, la tupla
+\texttt{(pid, starttime)}. Aplica una política de resiliencia: los fallos
+\texttt{ENOENT}, \texttt{ESRCH} y \texttt{EACCES} se tratan como condiciones
+normales y se descartan silenciosamente; el recolector nunca aborta por un
+proceso individual que falla.
+
+\subsection{M2 — Almacén de muestras}
+Buffer circular de las últimas $N$ muestras por proceso. Los procesos que
+desaparecen se conservan durante una ventana de gracia de $G$ ciclos para
+permitir que las evaluaciones pendientes se completen, tras lo cual sus
+estructuras se liberan.
+
+\subsection{M3 — Motor de métricas}
+Transforma muestras crudas en métricas accionables: \texttt{cpu\_percent},
+memoria residente y virtual, y tasas de E/S (\texttt{io\_read\_rate},
+\texttt{io\_write\_rate}) calculadas como deltas entre muestras consecutivas.
+
+\subsection{M4 — Motor de alertas y gobernanza}
+Es el núcleo diferenciador. Evalúa las métricas contra políticas declarativas e
+implementa tres mecanismos contra falsos positivos:
+\begin{itemize}
+\item \textbf{Persistencia temporal:} la alerta se activa solo si el umbral se
+supera durante $N$ muestras consecutivas.
+\item \textbf{Histéresis:} la desactivación requiere que la métrica descienda por
+debajo de un umbral inferior durante $M$ muestras.
+\item \textbf{Cooldown:} tras cada acción correctiva se espera un período de
+enfriamiento antes de escalar.
+\end{itemize}
+
+El motor soporta \emph{escalamiento progresivo}: una secuencia ordenada de
+acciones de severidad creciente
+(\texttt{warn}~$\rightarrow$~\texttt{renice}~$\rightarrow$~\texttt{cage}~$\rightarrow$~\texttt{stop}~$\rightarrow$~\texttt{kill}).
+El confinamiento (\texttt{cage}) crea un \texttt{cgroup~v2} real con límites de
+CPU. Las políticas se definen en formato INI extendido, parseado con la librería
+embebida \texttt{inih}:
+
+\begin{lstlisting}
+[policy:cpu_hog]
+type = performance
+metric = cpu_percent
+threshold = 80.0
+threshold_low = 60.0
+persistence = 3
+hysteresis_m = 2
+cooldown_s = 10
+actions = warn, renice:10, cage, stop, kill
+\end{lstlisting}
+
+\subsection{Protecciones contra daño autoinfligido}
+Las protecciones no limitan la detección, solo la acción automática:
+(i)~\emph{lista blanca} de procesos protegidos (PID~1, el propio ProcGuard,
+procesos del kernel y nombres protegidos que residan en rutas estándar);
+(ii)~\emph{techo de acciones} (máximo de \emph{kills} por minuto y de procesos
+confinados simultáneamente); (iii)~\emph{modo dry-run}, activo por defecto, que
+ejecuta todo el ciclo pero registra las acciones en lugar de ejecutarlas; y
+(iv)~\emph{revalidación de identidad}: antes de actuar se verifica que
+\texttt{(pid, starttime)} no cambió, previniendo actuar sobre un PID reciclado
+(condición de carrera TOCTOU).
+
+%-------------------------------------------------------------------------
+\section{Protocolo de experimentación}
+
+Se formuló un diseño experimental para dar certeza estadística a la evaluación de
+ProcGuard, estructurado en dos dimensiones, con un mínimo de 12 repeticiones por
+tratamiento y orden aleatorizado.
+
+\textbf{Dimensión 1 — Funcionalidad.} Evalúa la precisión de detección y la
+efectividad de gobernanza. Factores: tipo de carga (CPU-bound, memory-bound),
+perfil de anomalía (pico instantáneo, sostenido) y política (solo alertas,
+escalamiento completo). Variables de respuesta: latencia de detección (ms), tasa
+de verdaderos positivos, tasa de falsos positivos y efectividad de gobernanza.
+
+\textbf{Protocolo común por tratamiento.} Preparación a estado limpio; línea base
+de 60~s sin el monitor; inicio del monitor y estabilización de 30~s; inyección de
+la carga sintética con \texttt{stress-ng}; observación de 120~s registrando todas
+las variables; recolección de \emph{logs}.
+
+\textbf{Métodos estadísticos planeados.} Estadística descriptiva con intervalos
+de confianza al 95\%; verificación de supuestos con Shapiro--Wilk (normalidad) y
+Levene (homocedasticidad); ANOVA de una vía para comparar latencias entre
+tratamientos; y Tukey HSD como prueba \emph{post-hoc} para identificar los pares
+de tratamientos con diferencias significativas. El análisis se implementa en
+Python (\texttt{scipy}).
+
+%-------------------------------------------------------------------------
+\section{Resultados}
+
+Por restricciones de tiempo, la ejecución del experimento estadístico de la
+sección anterior quedó pendiente; en consecuencia, los resultados aquí reportados
+corresponden a la \emph{verificación y validación funcional} del núcleo
+implementado (M1--M4).
+
+\textbf{Verificación por pruebas unitarias.} El sistema se validó con 111 pruebas
+unitarias distribuidas por módulo (Tabla~\ref{tab:tests}), todas en estado
+\textsc{PASS}, ejecutadas bajo AddressSanitizer y UndefinedBehaviorSanitizer sin
+reportar fugas de memoria ni comportamiento indefinido.
+
+\begin{table}[t]
+\caption{Cobertura de pruebas unitarias por módulo.}
+\label{tab:tests}
+\centering
+\begin{tabular}{lc}
+\toprule
+\textbf{Suite de pruebas} & \textbf{N.º de pruebas} \\
+\midrule
+Motor de alertas (engine) & 58 \\
+Recolector (collector) & 12 \\
+Métricas (metrics) & 10 \\
+Almacén (store) & 10 \\
+Estado de alertas (alert\_state) & 8 \\
+Parser de políticas (alert\_parser) & 7 \\
+Colas IPC (queues) & 6 \\
+\midrule
+\textbf{Total} & \textbf{111} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Validación funcional.} El binario ejecuta el ciclo completo de gobernanza
+sobre \texttt{/proc} e imprime, por ciclo, el ranking de procesos por \%CPU. Las
+pruebas verifican comportamientos críticos de forma determinista, entre ellos:
+la cancelación de la acción cuando \texttt{starttime} cambia (TOCTOU); la
+supresión de llamadas al sistema en modo \emph{dry-run} con avance del nivel de
+escalamiento; la aplicación idempotente del \emph{cage} con conteo correcto bajo
+el techo de procesos confinados; el bloqueo de \texttt{kill} al alcanzar el techo
+de acciones; y la liberación del confinamiento durante la recolección de basura
+cuando el proceso desaparece. Estos resultados evidencian que las protecciones
+contra daño autoinfligido operan según lo especificado antes de habilitar
+acciones reales.
+
+%-------------------------------------------------------------------------
+\section{Alcance y trabajo futuro}
+\label{sec:alcance}
+
+El núcleo de gobernanza (M1--M4) está implementado, probado y operativo,
+incluyendo el confinamiento real con \texttt{cgroups~v2}. Quedan especificados y
+diseñados, como trabajo futuro, los siguientes componentes: el motor de seguridad
+(M5) con cuatro heurísticas de comportamiento sospechoso (escaneo de puertos,
+procesos camuflados, enumeración del sistema vía \texttt{inotify} y huérfanos
+anómalos); la interfaz de terminal interactiva (M6) con \texttt{ncurses}; el
+subsistema de reportes y registro forense (M7) con \emph{logs} JSON-lines y
+reportes HTML; el modo \emph{daemon} con señales POSIX; el modelo de tres hilos
+con sincronización por \emph{mutex}; las métricas de red e hilos; y la ejecución
+del diseño experimental con su análisis estadístico.
+
+%-------------------------------------------------------------------------
+\section{Conclusiones}
+
+Se diseñó e implementó el núcleo de un sistema de gobernanza activa de procesos
+para Linux que cierra el lazo entre observación y acción, superando el paradigma
+pasivo de las herramientas convencionales. El motor de gobernanza combina
+detección con control de falsos positivos (persistencia, histéresis,
+\emph{cooldown}) y respuesta correctiva escalonada respaldada por mecanismos
+reales del kernel (\texttt{setpriority}, señales POSIX y \texttt{cgroups~v2}). El
+énfasis en protecciones contra daño autoinfligido ---en particular la
+revalidación de identidad \texttt{(pid, starttime)} y el modo \emph{dry-run} por
+defecto--- resultó central para un sistema que actúa automáticamente sobre el
+sistema operativo. La verificación con 111 pruebas unitarias bajo sanitizers
+respalda la corrección del núcleo entregado. El principal trabajo pendiente es la
+ejecución del diseño experimental formulado, que permitirá cuantificar
+estadísticamente la latencia de detección y la efectividad de gobernanza, además
+de completar los módulos de seguridad, interfaz y reportes ya especificados.
+
+%-------------------------------------------------------------------------
+\begin{thebibliography}{9}
+
+\bibitem{procfs}
+\textit{proc(5) — process information pseudo-filesystem}, Linux \emph{man-pages}.
+\url{https://man7.org/linux/man-pages/man5/proc.5.html}
+
+\bibitem{cgroups}
+\textit{cgroups(7) — Linux control groups}, Linux \emph{man-pages}.
+\url{https://man7.org/linux/man-pages/man7/cgroups.7.html}
+
+\bibitem{sched}
+\textit{sched\_setaffinity(2)} y \textit{setpriority(2)}, Linux \emph{man-pages}.
+\url{https://man7.org/linux/man-pages/man2/setpriority.2.html}
+
+\bibitem{inih}
+B. Hoyt, \textit{inih: simple .INI file parser in C}.
+\url{https://github.com/benhoyt/inih}
+
+\bibitem{unity}
+ThrowTheSwitch, \textit{Unity: unit testing for C}.
+\url{https://github.com/ThrowTheSwitch/Unity}
+
+\bibitem{stressng}
+C. I. King, \textit{stress-ng: a tool to load and stress a computer system}.
+\url{https://github.com/ColinIanKing/stress-ng}
+
+\end{thebibliography}
+
+\end{document}
