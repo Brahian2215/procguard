@@ -164,10 +164,7 @@ restante como trabajo futuro (Sec.~\ref{sec:alcance}).
 
 \begin{figure}[t]
 \centering
-% Sustituir por la imagen del diagrama de arquitectura.
-\fbox{\parbox[c][3.2cm][c]{0.92\columnwidth}{\centering
-\textit{[Figura: diagrama de arquitectura de 7 módulos.\\
-Insertar \texttt{arquitectura.png} con \textbackslash includegraphics]}}}
+\includegraphics[width=\columnwidth]{arquitectura.jpg}
 \caption{Arquitectura de ProcGuard. El \emph{pipeline} de datos M1--M3 alimenta
 el motor de gobernanza M4. Los módulos M5--M7 quedan especificados como trabajo
 futuro.}
@@ -223,6 +220,17 @@ hysteresis_m = 2
 cooldown_s = 10
 actions = warn, renice:10, cage, stop, kill
 \end{lstlisting}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{ciclo_gobernanza.jpg}
+\caption{Ciclo de gobernanza. Una métrica que supera el umbral debe persistir
+$N$ muestras para activar la alerta; tras pasar las protecciones del sistema, se
+ejecuta el escalamiento progresivo, regulado por histéresis y \emph{cooldown}.}
+\label{fig:ciclo}
+\end{figure}
+
+El flujo completo de decisión se resume en la Fig.~\ref{fig:ciclo}.
 
 \subsection{Protecciones contra daño autoinfligido}
 Las protecciones no limitan la detección, solo la acción automática:
